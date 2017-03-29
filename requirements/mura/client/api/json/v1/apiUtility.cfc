@@ -27,7 +27,7 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 
 		variables.config={
 			linkMethods=[],
-			publicMethods="findOne,findMany,findAll,findProperties,findNew,findQuery,save,delete,findCrumbArray,generateCSRFTokens,validateEmail,login,logout,submitForm,findCalendarItems,validate,processAsyncObject,findRelatedContent,getURLForImage,findVersionHistory,findCurrentUser",
+			publicMethods="findOne,findMany,findAll,findProperties,findNew,findQuery,save,delete,findCrumbArray,generateCSRFTokens,validateEmail,login,logout,submitForm,findCalendarItems,validate,processAsyncObject,findRelatedContent,getURLForImage,findVersionHistory,findCurrentUser,swagger",
 			entities={
 				'contentnav'={
 					fields="links,images,parentid,moduleid,path,contentid,contenthistid,changesetid,siteid,active,approved,title,menutitle,summary,tags,type,subtype,displayStart,displayStop,display,filename,url,assocurl,isNew,remoteurl,remoteid"
@@ -430,6 +430,8 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 
 					if(!isJson(result)){
 						result=serializeResponse(statusCode=200,response={'apiversion'=getApiVersion(),'method'=params.method,'params'=getParamsWithOutMethod(params),'data'=result});
+					} else {
+						getpagecontext().getResponse().setContentType('application/json; charset=utf-8');
 					}
 
 					return result;
@@ -464,6 +466,8 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 
 					if(!isJson(result)){
 						result=serializeResponse(statusCode=200,response={'apiversion'=getApiVersion(),'method'=params.method,'params'=getParamsWithOutMethod(params),'data'=result});
+					} else {
+						getpagecontext().getResponse().setContentType('application/json; charset=utf-8');
 					}
 
 					return result;
@@ -749,7 +753,13 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 			}
 
 			param name="params.method" default="undefined";
-			return serializeResponse(statusCode=200,response={'apiversion'=getApiVersion(),'method'=params.method,'params'=getParamsWithOutMethod(params),'data'=result});
+
+			if(isDefined('result.errors') && isStruct(result.errors) && !StructIsEmpty(result.errors)){
+				return serializeResponse(statusCode=405,response={'apiversion'=getApiVersion(),'method'=params.method,'params'=getParamsWithOutMethod(params),'data'=result});
+			} else {
+				return serializeResponse(statusCode=200,response={'apiversion'=getApiVersion(),'method'=params.method,'params'=getParamsWithOutMethod(params),'data'=result});
+			}
+
 		}
 
 		catch (authorization e){
@@ -1714,8 +1724,8 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 		} else {
 			var queryParams=[];
 
-			for(var i in listToArray(queryString,'&')){
-				var checkProp=listFirst(i,'=');
+			for(var i in listToArray(arguments.queryString,'&')){
+				var checkProp=urlDecode(listFirst(i,'='));
 				if(checkProp!='pageIndex'){
 					ArrayAppend(queryParams, checkProp);
 				}
@@ -1742,14 +1752,14 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 
 				if(structKeyExists(params,p)){
 					if(started){
-						baseURL=baseURL & '&' & p;
+						baseURL=baseURL & '&' & esapiEncode('url',p);
 					} else {
-						baseURL=baseURL & p;
+						baseURL=baseURL & esapiEncode('url',p);
 						started=true;
 					}
 
 					if(len(params[p])){
-						baseURL=baseURL & '=' & params[p];
+						baseURL=baseURL & '=' & esapiEncode('url',params[p]);
 					}
 
 					if(!listFindNoCase('maxItems,pageIndex,itemsPerPage,sortBy,sortDirection,contentpoolid,shownavonly,showexcludesearch,includehomepage',p)){
@@ -2688,6 +2698,89 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 	function getURLForImage(fileid,size='small',height='auto',width='auto',siteid,complete=true,secure=false,useProtocol=false){
 		var $=getBean('$').init(arguments.siteid);
 		return {url=$.getURLForImage(argumentCollection=arguments)};
+	}
+
+	function swagger(siteid,params){
+		param name="arguments.params" default=url;
+
+		var $=getBean('$').init(arguments.siteid);
+
+		var result={
+			"swagger"= "2.0",
+			"info"= {
+				"description"= "This is the JSON API for #$.siteConfig().getRootPath(complete=1)#",
+				"version"= "1.0.0",
+				"title"= $.siteConfig('site'),
+				"termsOfService"= "http://swagger.io/terms/",
+				"contact"= {
+				"email"= $.siteConfig('contact')
+			},
+			"license"= {
+				"name"= "GPL-2.0 with execptions",
+				"url"= "https://github.com/blueriver/MuraCMS/blob/develop/license.txt"
+			}
+			},
+			"host": $.siteConfig('domain'),
+			"basePath"= $.siteConfig().getApi('JSON','v1').getEndPoint(),
+			"tags": [
+				{
+					"name"= "Mura CMS",
+					"description"= "Open source content management system",
+					"externalDocs"= {
+					"description"= "Find out more",
+					"url": "http://www.getmura.com"
+					}
+				}
+			],
+			"schemes"= [
+			$.getBean('utility').getRequestProtocol()
+			],
+			'paths'={},
+			'definitions'={}
+		};
+
+		var entityKeys=listToArray(ListSort(StructKeyList(variables.config.entities),'textnocase'));
+
+		for(var i in entityKeys){
+			if(allowAccess(i,$,false)){
+
+				result['paths']['/#lcase(i)#']={
+					"post"= {
+						"tags"= [
+							i
+						],
+						"summary"= "Saves a #i#",
+						"description"= "",
+						"operationId"= "save#$.getBean('utility').setProperCase(i)#",
+						"consumes"= [
+							"application/json"
+						],
+						"produces"= [
+							"application/json"
+						],
+						"parameters"= [
+
+						],
+						"responses"= {
+							"405"= {
+								"description": "Invalid input"
+							}
+						},
+						"security"= [
+							{
+								"#$.event('siteid')#_auth"= [
+									"write:#lcase(i)#",
+									"read:#lcase(i)#"
+								]
+							}
+						]
+
+					}
+				};
+			}
+		}
+
+		return serializeJSON(result);
 	}
 
 }

@@ -53,6 +53,11 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 	//data=structNew();
 
 	$=application.serviceFactory.getBean("MuraScope");
+
+	if(!isNumeric($.event('page'))){
+			$.event('page',1);
+	}
+
 	rsTypes=application.configBean.getClassExtensionManager().getSubTypes(siteid=session.siteid,activeOnly=true);
 
 	filterSubtypes=!poweruser;
