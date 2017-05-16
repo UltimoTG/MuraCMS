@@ -1379,6 +1379,7 @@
 									}
 
 									var params=item.data();
+									var objectid='';
 
 									delete params['instanceid'];
 									//delete params['objectname'];
@@ -1394,7 +1395,9 @@
 										item.data('objectname',item.data('object'));
 									}
 
-									objectlist.push(item.data('object') + '~' + item.data('objectname') + '~' + item.data('objectid') + '~' + JSON.stringify(params))
+									objectid=item.data('objectid') || 'NA';
+
+									objectlist.push(item.data('object') + '~' + item.data('objectname') + '~' + objectid + '~' + JSON.stringify(params))
 
 								});
 
@@ -1551,6 +1554,8 @@
 
 					        },
 					         error: function(data){
+								utility('##adminSave').removeClass('mura-saving');
+								alert("An server error occurred.  Please check js console for more information.");
 					        	console.log(JSON.stringify(data));
 
 					        }

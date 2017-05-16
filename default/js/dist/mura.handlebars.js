@@ -6277,20 +6277,35 @@ return /******/ (function(modules) { // webpackBootstrap
         siteid = siteid || root.Mura.siteid;
 
         return new Promise(function(resolve, reject) {
-            root.Mura.ajax({
-                async: true,
+
+            Mura.ajax({
                 type: 'post',
-                url: root.Mura.apiEndpoint,
+                url: Mura.apiEndpoint +
+                    '?method=generateCSRFTokens',
                 data: {
                     siteid: siteid,
-                    username: username,
-                    password: password,
-                    method: 'login'
+                    context: 'login'
                 },
                 success: function(resp) {
-                    resolve(resp.data);
+                    root.Mura.ajax({
+                        async: true,
+                        type: 'post',
+                        url: root.Mura.apiEndpoint,
+                        data: {
+                            siteid: siteid,
+                            username: username,
+                            password: password,
+                            method: 'login',
+                            'csrf_token': resp.data.csrf_token,
+                            'csrf_token_expires': resp.data.csrf_token_expires
+                        },
+                        success: function(resp) {
+                            resolve(resp.data);
+                        }
+                    });
                 }
             });
+
         });
 
     }
@@ -6347,29 +6362,35 @@ return /******/ (function(modules) { // webpackBootstrap
      * @return {Promise}
      * @memberof Mura
      */
-    function trackEvent(data) {
-
-        data.category = data.category || '';
-        data.action = data.action || '';
-        data.label == data.label || '';
-        data.contentid = data.contentid || Mura.contentid;
-        data.objectid = data.objectid || '';
-
-        if (typeof data.nonInteraction == 'undefined') {
-            data.nonInteraction = false;
-        }
-
+    function trackEvent(eventData) {
+        var data={};
+        var isMXP=(typeof Mura.MXP != 'undefined');
         var trackingVars = {};
         var gaFound = false;
         var trackingComplete = false;
+        var attempt=0;
 
-        var trackingID = data.contentid + data.objectid;
+        data.category = eventData.eventCategory || eventData.category || '';
+        data.action = eventData.eventAction || eventData.action || '';
+        data.label = eventData.eventLabel || eventData.label || '';
+        data.type =  eventData.hitType || eventData.type || 'event';
+        data.value =  eventData.eventValue || eventData.value || undefined;
 
-        function trackGA() {
-            if (typeof ga != 'undefined') {
+        if (typeof eventData.nonInteraction == 'undefined') {
+            data.nonInteraction = false;
+        } else {
+            data.nonInteraction = eventData.nonInteraction;
+        }
+
+        data.contentid = eventData.contentid || Mura.contentid;
+        data.objectid = eventData.objectid || '';
+
+        function track() {
+            if(!attempt){
                 trackingVars.ga.eventCategory = data.category;
                 trackingVars.ga.eventAction = data.action;
                 trackingVars.ga.nonInteraction = data.nonInteraction;
+                trackingVars.ga.hitType = data.type;
 
                 if (typeof data.value != 'undefined' && Mura.isNumeric(
                         data.value)) {
@@ -6378,34 +6399,68 @@ return /******/ (function(modules) { // webpackBootstrap
 
                 if (data.label) {
                     trackingVars.ga.eventLabel = data.label;
-                } else {
+                } else if(isMXP) {
                     trackingVars.ga.eventLabel = trackingVars.object.title;
+                    data.label=trackingVars.object.title;
                 }
 
-                ga('mxpGATracker.send', 'event', trackingVars.ga);
+                Mura(document).trigger('muraTrackEvent',trackingVars);
+                Mura(document).trigger('muraRecordEvent',trackingVars);
+            }
+
+            if (typeof ga != 'undefined') {
+                if(isMXP){
+                    ga('mxpGATracker.send', data.type, trackingVars.ga);
+                } else {
+                    ga('send', data.type, trackingVars.ga);
+                }
+
                 gaFound = true;
                 trackingComplete = true;
             }
 
-            if (!gaFound) {
-                setTimeout(trackGA, 1);
+            attempt++;
+
+            if (!gaFound && attempt <250) {
+                setTimeout(track, 1);
+            } else {
+                trackingComplete = true;
             }
+
         }
 
-        if(typeof trackingMetadata[trackingID] != 'undefined'){
-            trackingVars = trackingMetadata[trackingID];
-            trackGA();
+        if(isMXP){
+
+            var trackingID = data.contentid + data.objectid;
+
+            if(typeof trackingMetadata[trackingID] != 'undefined'){
+                Mura.deepExtend(trackingVars,trackingMetadata[trackingID]);
+                trackingVars.eventData=data;
+                track();
+            } else {
+                Mura.get(mura.apiEndpoint, {
+                    method: 'findTrackingProps',
+                    siteid: Mura.siteid,
+                    contentid: data.contentid,
+                    objectid: data.objectid
+                }).then(function(response) {
+                    Mura.deepExtend(trackingVars,response.data);
+                    trackingVars.eventData=data;
+
+                    for(var p in trackingVars.ga){
+                        if(trackingVars.ga.hasOwnProperty(p) && p.substring(0,1)=='d' && typeof trackingVars.ga[p] != 'string'){
+                            trackingVars.ga[p]=new String(trackingVars.ga[p]);
+                        }
+                    }
+
+                    trackingMetadata[trackingID]={};
+                    Mura.deepExtend(trackingMetadata[trackingID],response.data);
+                    track();
+                });
+            }
         } else {
-            Mura.get(mura.apiEndpoint, {
-                method: 'findTrackingProps',
-                siteid: Mura.siteid,
-                contentid: data.contentid,
-                objectid: data.objectid
-            }).then(function(response) {
-                trackingVars = response.data;
-                trackingMetadata[trackingID]=trackingVars;
-                trackGA();
-            });
+            Mura.deepExtend(trackingVars,{ga:{}});
+            track();
         }
 
         return new Promise(function(resolve, reject) {
@@ -6983,7 +7038,7 @@ return /******/ (function(modules) { // webpackBootstrap
     function generateOauthToken(grant_type, client_id, client_secret) {
         return new Promise(function(resolve, reject) {
             get(Mura.apiEndpoint.replace('/json/', '/rest/') +
-                'oauth/token?grant_type=' +
+                'oauth?grant_type=' +
                 encodeURIComponent(grant_type) +
                 '&client_id=' + encodeURIComponent(
                     client_id) + '&client_secret=' +
@@ -6993,8 +7048,11 @@ return /******/ (function(modules) { // webpackBootstrap
                 if (resp.data != 'undefined') {
                     resolve(resp.data);
                 } else {
-                    if (typeof reject == 'function') {
+
+                    if (typeof resp.error != 'undefined' && typeof reject == 'function') {
                         reject(resp);
+                    } else {
+                        resolve(resp);
                     }
                 }
             })
@@ -7022,32 +7080,41 @@ return /******/ (function(modules) { // webpackBootstrap
     }
 
     function trigger(el, eventName, eventDetail) {
-        var eventClass = "";
-
-        switch (eventName) {
-            case "click":
-            case "mousedown":
-            case "mouseup":
-                eventClass = "MouseEvents";
-                break;
-
-            case "focus":
-            case "change":
-            case "blur":
-            case "select":
-                eventClass = "HTMLEvents";
-                break;
-
-            default:
-                eventClass = "Event";
-                break;
-        }
 
         var bubbles = eventName == "change" ? false : true;
 
         if (document.createEvent) {
-            var event = document.createEvent(eventClass);
-            event.initEvent(eventName, bubbles, true);
+
+            if(eventDetail && !isEmptyObject(eventDetail)){
+                var event = document.createEvent('CustomEvent');
+                event.initCustomEvent(eventName, bubbles, true,eventDetail);
+            } else {
+
+                var eventClass = "";
+
+                switch (eventName) {
+                    case "click":
+                    case "mousedown":
+                    case "mouseup":
+                        eventClass = "MouseEvents";
+                        break;
+
+                    case "focus":
+                    case "change":
+                    case "blur":
+                    case "select":
+                        eventClass = "HTMLEvents";
+                        break;
+
+                    default:
+                        eventClass = "Event";
+                        break;
+                }
+
+                var event = document.createEvent(eventClass);
+                event.initEvent(eventName, bubbles, true);
+            }
+
             event.synthetic = true;
             el.dispatchEvent(event);
 
@@ -8448,7 +8515,10 @@ return /******/ (function(modules) { // webpackBootstrap
         return processDisplayObject(obj, false, true);
     }
 
-    function wireUpObject(obj, response) {
+    function wireUpObject(obj, response, attempt) {
+
+        attempt= attempt || 0;
+        attempt++;
 
         function validateFormAjax(frm) {
             validateForm(frm,
@@ -8547,8 +8617,17 @@ return /******/ (function(modules) { // webpackBootstrap
                             '.mura-object-content').node;
                         Mura.templates[template](context);
                     } else {
-                        console.log('Missing Client Template for:');
-                        console.log(obj.data());
+                        if(attempt < 1000){
+                            setTimeout(
+                                function(){
+                                    wireUpObject(obj,response,attempt);
+                                },
+                                1
+                            );
+                        } else {
+                            console.log('Missing Client Template for:');
+                            console.log(obj.data());
+                        }
                     }
                 }
             }
@@ -8584,8 +8663,18 @@ return /******/ (function(modules) { // webpackBootstrap
                         '.mura-object-content').node;
                     Mura.templates[template](context);
                 } else {
-                    console.log('Missing Client Template for:');
-                    console.log(obj.data());
+                    if(attempt < 1000){
+                        setTimeout(
+                            function(){
+                                wireUpObject(obj,response,attempt);
+                            },
+                            1
+                        );
+                    } else {
+                        console.log('Missing Client Template for:');
+                        console.log(obj.data());
+                    }
+
                 }
             }
         }
@@ -8794,6 +8883,15 @@ return /******/ (function(modules) { // webpackBootstrap
 
         if (obj.data('queue') != null) {
             queue = obj.data('queue');
+
+            if(typeof queue == 'string'){
+                queue=queue.toLowerCase();
+                if(queue=='no' || queue=='false'){
+                  queue=false;
+              } else {
+                  queue==true;
+              }
+            }
         }
 
         el = el.node || el;
@@ -9409,7 +9507,8 @@ return /******/ (function(modules) { // webpackBootstrap
                 DisplayObject: {},
                 displayObjectInstances: {},
                 holdReady: holdReady,
-                trackEvent: trackEvent
+                trackEvent: trackEvent,
+                recordEvent: trackEvent
             }
         ),
         //these are here for legacy support
@@ -10659,6 +10758,8 @@ return /******/ (function(modules) { // webpackBootstrap
             appendDisplayObject: function(data) {
                 var self = this;
 
+                delete data.method;
+                
                 return new Promise(function(resolve, reject) {
                     self.each(function() {
                         var el = document.createElement(
@@ -10694,7 +10795,7 @@ return /******/ (function(modules) { // webpackBootstrap
                         mura(this).append(el);
 
                         Mura.processDisplayObject(
-                            el).then(
+                            el,true,true).then(
                             resolve, reject
                         );
 
@@ -10710,6 +10811,8 @@ return /******/ (function(modules) { // webpackBootstrap
              */
             prependDisplayObject: function(data) {
                 var self = this;
+
+                delete data.method;
 
                 return new Promise(function(resolve, reject) {
                     self.each(function() {
@@ -10746,7 +10849,7 @@ return /******/ (function(modules) { // webpackBootstrap
                         mura(this).prepend(el);
 
                         Mura.processDisplayObject(
-                            el).then(
+                            el,true,true).then(
                             resolve, reject
                         );
 
@@ -10762,10 +10865,13 @@ return /******/ (function(modules) { // webpackBootstrap
              */
             processDisplayObject: function(data) {
                 var self = this;
+
+                delete data.method;
+
                 return new Promise(function(resolve, reject) {
                     self.each(function() {
                         Mura.processDisplayObject(
-                            this).then(
+                            this,true,true).then(
                             resolve, reject
                         );
                     });
@@ -12506,6 +12612,16 @@ return /******/ (function(modules) { // webpackBootstrap
 			return this;
 		},
 
+        /**
+		 * each - Passes each entity in collection through function
+		 *
+		 * @param  {function} fn Function
+		 * @return {object}  Self
+		 */
+		forEach:function(fn){
+			return this.each(fn);
+		},
+
 		/**
 		 * sort - Sorts collection
 		 *
@@ -12524,23 +12640,30 @@ return /******/ (function(modules) { // webpackBootstrap
 		 * @return {Mura.EntityCollection}
 		 */
 		filter:function(fn){
-			var collection=new Mura.EntityCollection(this.properties);
-			return collection.set('items',collection.get('items').filter( function(item,idx){
+            var newProps={};
+
+            for(var p in this.properties){
+                if(this.properties.hasOwnProperty(p) && p != 'items' && p != 'links'){
+                    newProps[p]=this.properties[p];
+                }
+            }
+
+			var collection=new Mura.EntityCollection(newProps);
+			return collection.set('items',this.properties.items.filter( function(item,idx){
 				return fn.call(item,item,idx);
 			}));
 		},
 
         /**
-		 * map - Returns new Mura.EntityCollection of entities in objects returned from map function
+		 * map - Returns new Array returned from map function
 		 *
 		 * @param  {function} fn Filter function
-		 * @return {Mura.EntityCollection}
+		 * @return {Array}
 		 */
 		map:function(fn){
-			var collection=new Mura.EntityCollection(this.properties);
-			return collection.set('items',collection.get('items').map( function(item,idx){
+			return this.properties.items.map( function(item,idx){
 				return fn.call(item,item,idx);
-			}));
+			});
 		},
 
         /**
@@ -13475,7 +13598,9 @@ return /******/ (function(modules) { // webpackBootstrap
 				switch( fieldtype ) {
 					case "textfield":
 					case "textarea":
-						field.value = self.data[field.name];
+						if(self.data[field.name]){
+							field.value = self.data[field.name];
+						}
 					 break;
 					case "checkbox":
 
@@ -13698,24 +13823,40 @@ return /******/ (function(modules) { // webpackBootstrap
 						data.siteid=data.siteid || Mura.siteid;
 						data.fields=self.getPageFieldList();
 
-		                Mura.post(
-	                        Mura.apiEndpoint + '?method=processAsyncObject',
-	                        data)
-	                        .then(function(resp){
-	                            if(typeof resp.data.errors == 'object' && !Mura.isEmptyObject(resp.data.errors)){
-									self.showErrors( resp.data.errors );
-	                            } else if(typeof resp.data.redirect != 'undefined') {
-									if(resp.data.redirect && resp.data.redirect != location.href){
-										location.href=resp.data.redirect;
-									} else {
-										location.reload(true);
-									}
-								} else {
-									self.currentpage = mura(button).data('page');
-	                                self.renderForm();
-	                            }
-	                        }
-							);
+						Mura.ajax({
+			                type: 'post',
+			                url: Mura.apiEndpoint +
+			                    '?method=generateCSRFTokens',
+			                data: {
+			                    siteid: data.siteid,
+			                    context: data.formid
+			                },
+			                success: function(resp) {
+								data['csrf_token_expires']=resp.data['csrf_token_expires'];
+								data['csrf_token']=resp.data['csrf_token'];
+
+								Mura.post(
+			                        Mura.apiEndpoint + '?method=processAsyncObject',
+			                        data)
+			                        .then(function(resp){
+			                            if(typeof resp.data.errors == 'object' && !Mura.isEmptyObject(resp.data.errors)){
+											self.showErrors( resp.data.errors );
+			                            } else if(typeof resp.data.redirect != 'undefined') {
+											if(resp.data.redirect && resp.data.redirect != location.href){
+												location.href=resp.data.redirect;
+											} else {
+												location.reload(true);
+											}
+										} else {
+											self.currentpage = mura(button).data('page');
+			                                self.renderForm();
+			                            }
+			                        }
+								);
+							}
+						});
+
+
 					}
 
 					/*
@@ -13997,6 +14138,9 @@ return /******/ (function(modules) { // webpackBootstrap
 					.find('form')
 					.trigger('formSubmit');
 
+
+				Mura.trackEvent({category:'Form',action:'Submit',label:self.context.name,objectid:self.context.objectid})
+
 				if(self.ormform) {
 					//console.log('a!');
 					Mura.getEntity(self.entity)
@@ -14038,6 +14182,11 @@ return /******/ (function(modules) { // webpackBootstrap
 						data.contenthistid=Mura.contenthistid || '';
 						delete data.filename;
 
+						var tokenArgs={
+							siteid: data.siteid,
+							context: data.formid
+						}
+
 					} else {
 						var rawdata=Mura.deepExtend({},self.context,self.data);
 						rawdata.saveform=true;
@@ -14045,6 +14194,12 @@ return /******/ (function(modules) { // webpackBootstrap
 						rawdata.siteid=rawdata.siteid || Mura.siteid;
 						rawdata.contentid=Mura.contentid || '';
 						rawdata.contenthistid=Mura.contenthistid || '';
+
+						var tokenArgs={
+							siteid: rawdata.siteid,
+							context: rawdata.formid
+						}
+
 						delete rawdata.filename;
 
 						var data=new FormData();
@@ -14060,23 +14215,39 @@ return /******/ (function(modules) { // webpackBootstrap
 						}
 					}
 
-	                Mura.post(
-	                        Mura.apiEndpoint + '?method=processAsyncObject',
-	                        data)
-	                        .then(function(resp){
-	                            if(typeof resp.data.errors == 'object' && !Mura.isEmptyObject(resp.data.errors )){
-									self.showErrors( resp.data.errors );
-								} else if(typeof resp.data.redirect != 'undefined'){
-									if(resp.data.redirect && resp.data.redirect != location.href){
-										location.href=resp.data.redirect;
-									} else {
-										location.reload(true);
-									}
-	                            } else {
-									mura(self.context.formEl).html( Mura.templates['success'](resp.data) );
-								}
-	                        });
+					Mura.ajax({
+						type: 'post',
+						url: Mura.apiEndpoint +
+							'?method=generateCSRFTokens',
+						data: tokenArgs,
+						success: function(resp) {
 
+							if(typeof FormData == 'undefined'){
+								data['csrf_token_expires']=resp.data['csrf_token_expires'];
+								data['csrf_token']=resp.data['csrf_token'];
+							} else {
+								data.append('csrf_token_expires',resp.data['csrf_token_expires']);
+								data.append('csrf_token',resp.data['csrf_token']);
+							}
+
+							Mura.post(
+							   Mura.apiEndpoint + '?method=processAsyncObject',
+							   data)
+							   .then(function(resp){
+								   if(typeof resp.data.errors == 'object' && !Mura.isEmptyObject(resp.data.errors )){
+									   self.showErrors( resp.data.errors );
+								   } else if(typeof resp.data.redirect != 'undefined'){
+									   if(resp.data.redirect && resp.data.redirect != location.href){
+										   location.href=resp.data.redirect;
+									   } else {
+										   location.reload(true);
+									   }
+								   } else {
+									   mura(self.context.formEl).html( Mura.templates['success'](resp.data) );
+								   }
+							  });
+						}
+					});
 				}
 
 			},
@@ -14086,7 +14257,7 @@ return /******/ (function(modules) { // webpackBootstrap
 				var frm=mura(this.context.formEl);
 				var frmErrors=frm.find(".error-container-" + self.context.objectid);
 
-				frm.find('.mura-response-error').remove();
+				mura(this.context.formEl).find('.mura-response-error').remove();
 
 				console.log(errors);
 
@@ -14562,7 +14733,7 @@ return /******/ (function(modules) { // webpackBootstrap
 				Mura.Handlebars.registerHelper('commonInputAttributes',function() {
 					//id, class, title, size
 					var escapeExpression=Mura.Handlebars.escapeExpression;
-					
+
 					if(typeof this.fieldtype != 'undefined' && this.fieldtype.fieldtype=='file'){
 						var returnString='name="' + escapeExpression(this.name) + '_attachment"';
 					} else {
@@ -14668,17 +14839,17 @@ this["mura"]["templates"] = this["mura"]["templates"] || {};
 this["mura"]["templates"]["checkbox"] = this.mura.Handlebars.template({"1":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"summary","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"summary","hash":{},"data":data}) : helper)));
 },"3":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"label","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"label","hash":{},"data":data}) : helper)));
 },"5":function(container,depth0,helpers,partials,data) {
     return " <ins>Required</ins>";
 },"7":function(container,depth0,helpers,partials,data) {
     return "</br>";
 },"9":function(container,depth0,helpers,partials,data,blockParams,depths) {
-    var stack1, helper, alias1=container.lambda, alias2=container.escapeExpression, alias3=depth0 != null ? depth0 : {}, alias4=helpers.helperMissing, alias5="function";
+    var stack1, helper, alias1=container.lambda, alias2=container.escapeExpression, alias3=depth0 != null ? depth0 : (container.nullContext || {}), alias4=helpers.helperMissing, alias5="function";
 
   return "				<label class=\"checkbox\">\r\n				<input source=\""
     + alias2(alias1(((stack1 = (depths[1] != null ? depths[1].dataset : depths[1])) != null ? stack1.source : stack1), depth0))
@@ -14700,7 +14871,7 @@ this["mura"]["templates"]["checkbox"] = this.mura.Handlebars.template({"1":funct
 },"10":function(container,depth0,helpers,partials,data) {
     return "checked='checked'";
 },"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data,blockParams,depths) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function";
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function";
 
   return "	<div class=\""
     + ((stack1 = ((helper = (helper = helpers.inputWrapperClass || (depth0 != null ? depth0.inputWrapperClass : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"inputWrapperClass","hash":{},"data":data}) : helper))) != null ? stack1 : "")
@@ -14719,17 +14890,17 @@ this["mura"]["templates"]["checkbox"] = this.mura.Handlebars.template({"1":funct
 this["mura"]["templates"]["checkbox_static"] = this.mura.Handlebars.template({"1":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"summary","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"summary","hash":{},"data":data}) : helper)));
 },"3":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"label","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"label","hash":{},"data":data}) : helper)));
 },"5":function(container,depth0,helpers,partials,data) {
     return " <ins>Required</ins>";
 },"7":function(container,depth0,helpers,partials,data) {
     return "</br>";
 },"9":function(container,depth0,helpers,partials,data,blockParams,depths) {
-    var stack1, helper, alias1=container.lambda, alias2=container.escapeExpression, alias3=depth0 != null ? depth0 : {}, alias4=helpers.helperMissing, alias5="function";
+    var stack1, helper, alias1=container.lambda, alias2=container.escapeExpression, alias3=depth0 != null ? depth0 : (container.nullContext || {}), alias4=helpers.helperMissing, alias5="function";
 
   return "				<label class=\"checkbox\">\r\n				<input type=\"checkbox\" name=\""
     + alias2(alias1((depths[1] != null ? depths[1].name : depths[1]), depth0))
@@ -14748,7 +14919,7 @@ this["mura"]["templates"]["checkbox_static"] = this.mura.Handlebars.template({"1
 },"10":function(container,depth0,helpers,partials,data) {
     return " checked='checked'";
 },"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data,blockParams,depths) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function";
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function";
 
   return "	<div class=\""
     + ((stack1 = ((helper = (helper = helpers.inputWrapperClass || (depth0 != null ? depth0.inputWrapperClass : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"inputWrapperClass","hash":{},"data":data}) : helper))) != null ? stack1 : "")
@@ -14767,17 +14938,17 @@ this["mura"]["templates"]["checkbox_static"] = this.mura.Handlebars.template({"1
 this["mura"]["templates"]["dropdown"] = this.mura.Handlebars.template({"1":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"summary","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"summary","hash":{},"data":data}) : helper)));
 },"3":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"label","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"label","hash":{},"data":data}) : helper)));
 },"5":function(container,depth0,helpers,partials,data) {
     return " <ins>Required</ins>";
 },"7":function(container,depth0,helpers,partials,data) {
     return "</br>";
 },"9":function(container,depth0,helpers,partials,data) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "					<option data-isother=\""
     + alias4(((helper = (helper = helpers.isother || (depth0 != null ? depth0.isother : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"isother","hash":{},"data":data}) : helper)))
@@ -14793,7 +14964,7 @@ this["mura"]["templates"]["dropdown"] = this.mura.Handlebars.template({"1":funct
 },"10":function(container,depth0,helpers,partials,data) {
     return "selected='selected'";
 },"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "	<div class=\""
     + ((stack1 = ((helper = (helper = helpers.inputWrapperClass || (depth0 != null ? depth0.inputWrapperClass : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"inputWrapperClass","hash":{},"data":data}) : helper))) != null ? stack1 : "")
@@ -14816,17 +14987,17 @@ this["mura"]["templates"]["dropdown"] = this.mura.Handlebars.template({"1":funct
 this["mura"]["templates"]["dropdown_static"] = this.mura.Handlebars.template({"1":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"summary","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"summary","hash":{},"data":data}) : helper)));
 },"3":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"label","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"label","hash":{},"data":data}) : helper)));
 },"5":function(container,depth0,helpers,partials,data) {
     return " <ins>Required</ins>";
 },"7":function(container,depth0,helpers,partials,data) {
     return "</br>";
 },"9":function(container,depth0,helpers,partials,data) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "				<option data-isother=\""
     + alias4(((helper = (helper = helpers.isother || (depth0 != null ? depth0.isother : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"isother","hash":{},"data":data}) : helper)))
@@ -14842,7 +15013,7 @@ this["mura"]["templates"]["dropdown_static"] = this.mura.Handlebars.template({"1
 },"10":function(container,depth0,helpers,partials,data) {
     return "selected='selected'";
 },"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "	<div class=\""
     + ((stack1 = ((helper = (helper = helpers.inputWrapperClass || (depth0 != null ? depth0.inputWrapperClass : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"inputWrapperClass","hash":{},"data":data}) : helper))) != null ? stack1 : "")
@@ -14865,10 +15036,10 @@ this["mura"]["templates"]["dropdown_static"] = this.mura.Handlebars.template({"1
 this["mura"]["templates"]["error"] = this.mura.Handlebars.template({"1":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"label","hash":{},"data":data}) : helper)))
+  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"label","hash":{},"data":data}) : helper)))
     + ": ";
 },"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "<div class=\"mura-response-error\" data-field=\""
     + alias4(((helper = (helper = helpers.field || (depth0 != null ? depth0.field : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"field","hash":{},"data":data}) : helper)))
@@ -14881,7 +15052,7 @@ this["mura"]["templates"]["error"] = this.mura.Handlebars.template({"1":function
 this["mura"]["templates"]["file"] = this.mura.Handlebars.template({"1":function(container,depth0,helpers,partials,data) {
     return " <ins>Required</ins>";
 },"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "<div class=\""
     + ((stack1 = ((helper = (helper = helpers.inputWrapperClass || (depth0 != null ? depth0.inputWrapperClass : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"inputWrapperClass","hash":{},"data":data}) : helper))) != null ? stack1 : "")
@@ -14898,7 +15069,7 @@ this["mura"]["templates"]["file"] = this.mura.Handlebars.template({"1":function(
 },"useData":true});
 
 this["mura"]["templates"]["form"] = this.mura.Handlebars.template({"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "<form id=\"frm"
     + alias4(((helper = (helper = helpers.objectid || (depth0 != null ? depth0.objectid : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"objectid","hash":{},"data":data}) : helper)))
@@ -14916,7 +15087,7 @@ this["mura"]["templates"]["form"] = this.mura.Handlebars.template({"compiler":[7
 },"useData":true});
 
 this["mura"]["templates"]["hidden"] = this.mura.Handlebars.template({"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "<input type=\"hidden\" name=\""
     + alias4(((helper = (helper = helpers.name || (depth0 != null ? depth0.name : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"name","hash":{},"data":data}) : helper)))
@@ -14928,7 +15099,7 @@ this["mura"]["templates"]["hidden"] = this.mura.Handlebars.template({"compiler":
 },"useData":true});
 
 this["mura"]["templates"]["list"] = this.mura.Handlebars.template({"1":function(container,depth0,helpers,partials,data) {
-    var helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "					<option value=\""
     + alias4(((helper = (helper = helpers.name || (depth0 != null ? depth0.name : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"name","hash":{},"data":data}) : helper)))
@@ -14939,7 +15110,7 @@ this["mura"]["templates"]["list"] = this.mura.Handlebars.template({"1":function(
     var stack1;
 
   return "<form>\n	<div class=\"mura-control-group\">\n		<label for=\"beanList\">Choose Entity:</label>	\n		<div class=\"form-group-select\">\n			<select type=\"text\" name=\"bean\" id=\"select-bean-value\">\n"
-    + ((stack1 = helpers.each.call(depth0 != null ? depth0 : {},depth0,{"name":"each","hash":{},"fn":container.program(1, data, 0),"inverse":container.noop,"data":data})) != null ? stack1 : "")
+    + ((stack1 = helpers.each.call(depth0 != null ? depth0 : (container.nullContext || {}),depth0,{"name":"each","hash":{},"fn":container.program(1, data, 0),"inverse":container.noop,"data":data})) != null ? stack1 : "")
     + "			</select>\n		</div>\n	</div>\n	<div class=\"mura-control-group\">\n		<button type=\"button\" id=\"select-bean\">Go</button>\n	</div>\n</form>";
 },"useData":true});
 
@@ -14947,12 +15118,12 @@ this["mura"]["templates"]["nested"] = this.mura.Handlebars.template({"compiler":
     var helper;
 
   return "<div class=\"field-container-"
-    + container.escapeExpression(((helper = (helper = helpers.objectid || (depth0 != null ? depth0.objectid : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"objectid","hash":{},"data":data}) : helper)))
+    + container.escapeExpression(((helper = (helper = helpers.objectid || (depth0 != null ? depth0.objectid : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"objectid","hash":{},"data":data}) : helper)))
     + "\">\r\n\r\n</div>\r\n";
 },"useData":true});
 
 this["mura"]["templates"]["paging"] = this.mura.Handlebars.template({"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data) {
-    var helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "<button class=\""
     + alias4(((helper = (helper = helpers["class"] || (depth0 != null ? depth0["class"] : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"class","hash":{},"data":data}) : helper)))
@@ -14966,17 +15137,17 @@ this["mura"]["templates"]["paging"] = this.mura.Handlebars.template({"compiler":
 this["mura"]["templates"]["radio"] = this.mura.Handlebars.template({"1":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"summary","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"summary","hash":{},"data":data}) : helper)));
 },"3":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"label","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"label","hash":{},"data":data}) : helper)));
 },"5":function(container,depth0,helpers,partials,data) {
     return " <ins>Required</ins>";
 },"7":function(container,depth0,helpers,partials,data) {
     return "</br>";
 },"9":function(container,depth0,helpers,partials,data,blockParams,depths) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "				<label for=\""
     + alias4(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"label","hash":{},"data":data}) : helper)))
@@ -14994,7 +15165,7 @@ this["mura"]["templates"]["radio"] = this.mura.Handlebars.template({"1":function
 },"10":function(container,depth0,helpers,partials,data) {
     return "checked='checked'";
 },"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data,blockParams,depths) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function";
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function";
 
   return "	<div class=\""
     + ((stack1 = ((helper = (helper = helpers.inputWrapperClass || (depth0 != null ? depth0.inputWrapperClass : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"inputWrapperClass","hash":{},"data":data}) : helper))) != null ? stack1 : "")
@@ -15013,17 +15184,17 @@ this["mura"]["templates"]["radio"] = this.mura.Handlebars.template({"1":function
 this["mura"]["templates"]["radio_static"] = this.mura.Handlebars.template({"1":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"summary","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"summary","hash":{},"data":data}) : helper)));
 },"3":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"label","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"label","hash":{},"data":data}) : helper)));
 },"5":function(container,depth0,helpers,partials,data) {
     return " <ins>Required</ins>";
 },"7":function(container,depth0,helpers,partials,data) {
     return "</br>";
 },"9":function(container,depth0,helpers,partials,data,blockParams,depths) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "				<label for=\""
     + alias4(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"label","hash":{},"data":data}) : helper)))
@@ -15041,7 +15212,7 @@ this["mura"]["templates"]["radio_static"] = this.mura.Handlebars.template({"1":f
 },"10":function(container,depth0,helpers,partials,data) {
     return "checked='checked'";
 },"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data,blockParams,depths) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function";
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function";
 
   return "	<div class=\""
     + ((stack1 = ((helper = (helper = helpers.inputWrapperClass || (depth0 != null ? depth0.inputWrapperClass : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"inputWrapperClass","hash":{},"data":data}) : helper))) != null ? stack1 : "")
@@ -15058,7 +15229,7 @@ this["mura"]["templates"]["radio_static"] = this.mura.Handlebars.template({"1":f
 },"useData":true,"useDepths":true});
 
 this["mura"]["templates"]["section"] = this.mura.Handlebars.template({"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "<div class=\""
     + ((stack1 = ((helper = (helper = helpers.inputWrapperClass || (depth0 != null ? depth0.inputWrapperClass : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"inputWrapperClass","hash":{},"data":data}) : helper))) != null ? stack1 : "")
@@ -15073,12 +15244,12 @@ this["mura"]["templates"]["success"] = this.mura.Handlebars.template({"compiler"
     var stack1, helper;
 
   return "<div class=\"mura-response-success\">"
-    + ((stack1 = ((helper = (helper = helpers.responsemessage || (depth0 != null ? depth0.responsemessage : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"responsemessage","hash":{},"data":data}) : helper))) != null ? stack1 : "")
+    + ((stack1 = ((helper = (helper = helpers.responsemessage || (depth0 != null ? depth0.responsemessage : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"responsemessage","hash":{},"data":data}) : helper))) != null ? stack1 : "")
     + "</div>\n";
 },"useData":true});
 
 this["mura"]["templates"]["table"] = this.mura.Handlebars.template({"1":function(container,depth0,helpers,partials,data) {
-    var helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "<option value=\""
     + alias4(((helper = (helper = helpers.num || (depth0 != null ? depth0.num : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"num","hash":{},"data":data}) : helper)))
@@ -15088,7 +15259,7 @@ this["mura"]["templates"]["table"] = this.mura.Handlebars.template({"1":function
     + alias4(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"label","hash":{},"data":data}) : helper)))
     + "</option>";
 },"3":function(container,depth0,helpers,partials,data) {
-    var helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "					<option value=\""
     + alias4(((helper = (helper = helpers.name || (depth0 != null ? depth0.name : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"name","hash":{},"data":data}) : helper)))
@@ -15098,7 +15269,7 @@ this["mura"]["templates"]["table"] = this.mura.Handlebars.template({"1":function
     + alias4(((helper = (helper = helpers.displayName || (depth0 != null ? depth0.displayName : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"displayName","hash":{},"data":data}) : helper)))
     + "</option>\n";
 },"5":function(container,depth0,helpers,partials,data) {
-    var helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "			<th class='data-sort' data-value='"
     + alias4(((helper = (helper = helpers.column || (depth0 != null ? depth0.column : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"column","hash":{},"data":data}) : helper)))
@@ -15106,7 +15277,7 @@ this["mura"]["templates"]["table"] = this.mura.Handlebars.template({"1":function
     + alias4(((helper = (helper = helpers.displayName || (depth0 != null ? depth0.displayName : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"displayName","hash":{},"data":data}) : helper)))
     + "</th>\n";
 },"7":function(container,depth0,helpers,partials,data,blockParams,depths) {
-    var stack1, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing;
+    var stack1, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing;
 
   return "			<tr class=\"even\">\n"
     + ((stack1 = (helpers.eachColRow || (depth0 && depth0.eachColRow) || alias2).call(alias1,depth0,(depths[1] != null ? depths[1].columns : depths[1]),{"name":"eachColRow","hash":{},"fn":container.program(8, data, 0, blockParams, depths),"inverse":container.noop,"data":data})) != null ? stack1 : "")
@@ -15118,7 +15289,7 @@ this["mura"]["templates"]["table"] = this.mura.Handlebars.template({"1":function
     + container.escapeExpression(container.lambda(depth0, depth0))
     + "</td>\n";
 },"10":function(container,depth0,helpers,partials,data) {
-    var helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "				<button type=\"button\" class=\""
     + alias4(((helper = (helper = helpers.type || (depth0 != null ? depth0.type : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"type","hash":{},"data":data}) : helper)))
@@ -15154,7 +15325,7 @@ this["mura"]["templates"]["table"] = this.mura.Handlebars.template({"1":function
     + container.escapeExpression(container.lambda(((stack1 = ((stack1 = (depth0 != null ? depth0.rows : depth0)) != null ? stack1.links : stack1)) != null ? stack1.last : stack1), depth0))
     + "\">Last</button>\n";
 },"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data,blockParams,depths) {
-    var stack1, alias1=container.lambda, alias2=container.escapeExpression, alias3=depth0 != null ? depth0 : {}, alias4=helpers.helperMissing;
+    var stack1, alias1=container.lambda, alias2=container.escapeExpression, alias3=depth0 != null ? depth0 : (container.nullContext || {}), alias4=helpers.helperMissing;
 
   return "	<div class=\"mura-control-group\">\n		<div id=\"filter-results-container\">\n			<div id=\"date-filters\">\n				<div class=\"control-group\">\n				  <label>From</label>\n				  <div class=\"controls\">\n				  	<input type=\"text\" class=\"datepicker mura-date\" id=\"date1\" name=\"date1\" validate=\"date\" value=\""
     + alias2(alias1(((stack1 = (depth0 != null ? depth0.filters : depth0)) != null ? stack1.fromdate : stack1), depth0))
@@ -15189,17 +15360,17 @@ this["mura"]["templates"]["table"] = this.mura.Handlebars.template({"1":function
 this["mura"]["templates"]["textarea"] = this.mura.Handlebars.template({"1":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"summary","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"summary","hash":{},"data":data}) : helper)));
 },"3":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"label","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"label","hash":{},"data":data}) : helper)));
 },"5":function(container,depth0,helpers,partials,data) {
     return " <ins>Required</ins>";
 },"7":function(container,depth0,helpers,partials,data) {
     return "</br>";
 },"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "<div class=\""
     + ((stack1 = ((helper = (helper = helpers.inputWrapperClass || (depth0 != null ? depth0.inputWrapperClass : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"inputWrapperClass","hash":{},"data":data}) : helper))) != null ? stack1 : "")
@@ -15220,7 +15391,7 @@ this["mura"]["templates"]["textarea"] = this.mura.Handlebars.template({"1":funct
 },"useData":true});
 
 this["mura"]["templates"]["textblock"] = this.mura.Handlebars.template({"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function";
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function";
 
   return "<div class=\""
     + ((stack1 = ((helper = (helper = helpers.inputWrapperClass || (depth0 != null ? depth0.inputWrapperClass : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"inputWrapperClass","hash":{},"data":data}) : helper))) != null ? stack1 : "")
@@ -15234,11 +15405,11 @@ this["mura"]["templates"]["textblock"] = this.mura.Handlebars.template({"compile
 this["mura"]["templates"]["textfield"] = this.mura.Handlebars.template({"1":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"summary","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.summary || (depth0 != null ? depth0.summary : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"summary","hash":{},"data":data}) : helper)));
 },"3":function(container,depth0,helpers,partials,data) {
     var helper;
 
-  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"label","hash":{},"data":data}) : helper)));
+  return container.escapeExpression(((helper = (helper = helpers.label || (depth0 != null ? depth0.label : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"label","hash":{},"data":data}) : helper)));
 },"5":function(container,depth0,helpers,partials,data) {
     return " <ins>Required</ins>";
 },"7":function(container,depth0,helpers,partials,data) {
@@ -15247,10 +15418,10 @@ this["mura"]["templates"]["textfield"] = this.mura.Handlebars.template({"1":func
     var helper;
 
   return " placeholder=\""
-    + container.escapeExpression(((helper = (helper = helpers.placeholder || (depth0 != null ? depth0.placeholder : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : {},{"name":"placeholder","hash":{},"data":data}) : helper)))
+    + container.escapeExpression(((helper = (helper = helpers.placeholder || (depth0 != null ? depth0.placeholder : depth0)) != null ? helper : helpers.helperMissing),(typeof helper === "function" ? helper.call(depth0 != null ? depth0 : (container.nullContext || {}),{"name":"placeholder","hash":{},"data":data}) : helper)))
     + "\"";
 },"compiler":[7,">= 4.0.0"],"main":function(container,depth0,helpers,partials,data) {
-    var stack1, helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var stack1, helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "<div class=\""
     + ((stack1 = ((helper = (helper = helpers.inputWrapperClass || (depth0 != null ? depth0.inputWrapperClass : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"inputWrapperClass","hash":{},"data":data}) : helper))) != null ? stack1 : "")
@@ -15273,7 +15444,7 @@ this["mura"]["templates"]["textfield"] = this.mura.Handlebars.template({"1":func
 },"useData":true});
 
 this["mura"]["templates"]["view"] = this.mura.Handlebars.template({"1":function(container,depth0,helpers,partials,data) {
-    var helper, alias1=depth0 != null ? depth0 : {}, alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
+    var helper, alias1=depth0 != null ? depth0 : (container.nullContext || {}), alias2=helpers.helperMissing, alias3="function", alias4=container.escapeExpression;
 
   return "	<li>\n		<strong>"
     + alias4(((helper = (helper = helpers.displayName || (depth0 != null ? depth0.displayName : depth0)) != null ? helper : alias2),(typeof helper === alias3 ? helper.call(alias1,{"name":"displayName","hash":{},"data":data}) : helper)))
@@ -15284,6 +15455,6 @@ this["mura"]["templates"]["view"] = this.mura.Handlebars.template({"1":function(
     var stack1;
 
   return "<div class=\"mura-control-group\">\n<ul>\n"
-    + ((stack1 = (helpers.eachProp || (depth0 && depth0.eachProp) || helpers.helperMissing).call(depth0 != null ? depth0 : {},depth0,{"name":"eachProp","hash":{},"fn":container.program(1, data, 0),"inverse":container.noop,"data":data})) != null ? stack1 : "")
+    + ((stack1 = (helpers.eachProp || (depth0 && depth0.eachProp) || helpers.helperMissing).call(depth0 != null ? depth0 : (container.nullContext || {}),depth0,{"name":"eachProp","hash":{},"fn":container.program(1, data, 0),"inverse":container.noop,"data":data})) != null ? stack1 : "")
     + "</ul>\n<button type=\"button\" class=\"nav-back\">Back</button>\n</div>";
 },"useData":true});

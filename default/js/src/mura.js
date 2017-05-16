@@ -77,20 +77,35 @@
         siteid = siteid || root.Mura.siteid;
 
         return new Promise(function(resolve, reject) {
-            root.Mura.ajax({
-                async: true,
+
+            Mura.ajax({
                 type: 'post',
-                url: root.Mura.apiEndpoint,
+                url: Mura.apiEndpoint +
+                    '?method=generateCSRFTokens',
                 data: {
                     siteid: siteid,
-                    username: username,
-                    password: password,
-                    method: 'login'
+                    context: 'login'
                 },
                 success: function(resp) {
-                    resolve(resp.data);
+                    root.Mura.ajax({
+                        async: true,
+                        type: 'post',
+                        url: root.Mura.apiEndpoint,
+                        data: {
+                            siteid: siteid,
+                            username: username,
+                            password: password,
+                            method: 'login',
+                            'csrf_token': resp.data.csrf_token,
+                            'csrf_token_expires': resp.data.csrf_token_expires
+                        },
+                        success: function(resp) {
+                            resolve(resp.data);
+                        }
+                    });
                 }
             });
+
         });
 
     }
@@ -147,29 +162,35 @@
      * @return {Promise}
      * @memberof Mura
      */
-    function trackEvent(data) {
-
-        data.category = data.category || '';
-        data.action = data.action || '';
-        data.label == data.label || '';
-        data.contentid = data.contentid || Mura.contentid;
-        data.objectid = data.objectid || '';
-
-        if (typeof data.nonInteraction == 'undefined') {
-            data.nonInteraction = false;
-        }
-
+    function trackEvent(eventData) {
+        var data={};
+        var isMXP=(typeof Mura.MXP != 'undefined');
         var trackingVars = {};
         var gaFound = false;
         var trackingComplete = false;
+        var attempt=0;
 
-        var trackingID = data.contentid + data.objectid;
+        data.category = eventData.eventCategory || eventData.category || '';
+        data.action = eventData.eventAction || eventData.action || '';
+        data.label = eventData.eventLabel || eventData.label || '';
+        data.type =  eventData.hitType || eventData.type || 'event';
+        data.value =  eventData.eventValue || eventData.value || undefined;
 
-        function trackGA() {
-            if (typeof ga != 'undefined') {
+        if (typeof eventData.nonInteraction == 'undefined') {
+            data.nonInteraction = false;
+        } else {
+            data.nonInteraction = eventData.nonInteraction;
+        }
+
+        data.contentid = eventData.contentid || Mura.contentid;
+        data.objectid = eventData.objectid || '';
+
+        function track() {
+            if(!attempt){
                 trackingVars.ga.eventCategory = data.category;
                 trackingVars.ga.eventAction = data.action;
                 trackingVars.ga.nonInteraction = data.nonInteraction;
+                trackingVars.ga.hitType = data.type;
 
                 if (typeof data.value != 'undefined' && Mura.isNumeric(
                         data.value)) {
@@ -178,34 +199,68 @@
 
                 if (data.label) {
                     trackingVars.ga.eventLabel = data.label;
-                } else {
+                } else if(isMXP) {
                     trackingVars.ga.eventLabel = trackingVars.object.title;
+                    data.label=trackingVars.object.title;
                 }
 
-                ga('mxpGATracker.send', 'event', trackingVars.ga);
+                Mura(document).trigger('muraTrackEvent',trackingVars);
+                Mura(document).trigger('muraRecordEvent',trackingVars);
+            }
+
+            if (typeof ga != 'undefined') {
+                if(isMXP){
+                    ga('mxpGATracker.send', data.type, trackingVars.ga);
+                } else {
+                    ga('send', data.type, trackingVars.ga);
+                }
+
                 gaFound = true;
                 trackingComplete = true;
             }
 
-            if (!gaFound) {
-                setTimeout(trackGA, 1);
+            attempt++;
+
+            if (!gaFound && attempt <250) {
+                setTimeout(track, 1);
+            } else {
+                trackingComplete = true;
             }
+
         }
 
-        if(typeof trackingMetadata[trackingID] != 'undefined'){
-            trackingVars = trackingMetadata[trackingID];
-            trackGA();
+        if(isMXP){
+
+            var trackingID = data.contentid + data.objectid;
+
+            if(typeof trackingMetadata[trackingID] != 'undefined'){
+                Mura.deepExtend(trackingVars,trackingMetadata[trackingID]);
+                trackingVars.eventData=data;
+                track();
+            } else {
+                Mura.get(mura.apiEndpoint, {
+                    method: 'findTrackingProps',
+                    siteid: Mura.siteid,
+                    contentid: data.contentid,
+                    objectid: data.objectid
+                }).then(function(response) {
+                    Mura.deepExtend(trackingVars,response.data);
+                    trackingVars.eventData=data;
+
+                    for(var p in trackingVars.ga){
+                        if(trackingVars.ga.hasOwnProperty(p) && p.substring(0,1)=='d' && typeof trackingVars.ga[p] != 'string'){
+                            trackingVars.ga[p]=new String(trackingVars.ga[p]);
+                        }
+                    }
+
+                    trackingMetadata[trackingID]={};
+                    Mura.deepExtend(trackingMetadata[trackingID],response.data);
+                    track();
+                });
+            }
         } else {
-            Mura.get(mura.apiEndpoint, {
-                method: 'findTrackingProps',
-                siteid: Mura.siteid,
-                contentid: data.contentid,
-                objectid: data.objectid
-            }).then(function(response) {
-                trackingVars = response.data;
-                trackingMetadata[trackingID]=trackingVars;
-                trackGA();
-            });
+            Mura.deepExtend(trackingVars,{ga:{}});
+            track();
         }
 
         return new Promise(function(resolve, reject) {
@@ -783,7 +838,7 @@
     function generateOauthToken(grant_type, client_id, client_secret) {
         return new Promise(function(resolve, reject) {
             get(Mura.apiEndpoint.replace('/json/', '/rest/') +
-                'oauth/token?grant_type=' +
+                'oauth?grant_type=' +
                 encodeURIComponent(grant_type) +
                 '&client_id=' + encodeURIComponent(
                     client_id) + '&client_secret=' +
@@ -793,8 +848,11 @@
                 if (resp.data != 'undefined') {
                     resolve(resp.data);
                 } else {
-                    if (typeof reject == 'function') {
+
+                    if (typeof resp.error != 'undefined' && typeof reject == 'function') {
                         reject(resp);
+                    } else {
+                        resolve(resp);
                     }
                 }
             })
@@ -822,32 +880,41 @@
     }
 
     function trigger(el, eventName, eventDetail) {
-        var eventClass = "";
-
-        switch (eventName) {
-            case "click":
-            case "mousedown":
-            case "mouseup":
-                eventClass = "MouseEvents";
-                break;
-
-            case "focus":
-            case "change":
-            case "blur":
-            case "select":
-                eventClass = "HTMLEvents";
-                break;
-
-            default:
-                eventClass = "Event";
-                break;
-        }
 
         var bubbles = eventName == "change" ? false : true;
 
         if (document.createEvent) {
-            var event = document.createEvent(eventClass);
-            event.initEvent(eventName, bubbles, true);
+
+            if(eventDetail && !isEmptyObject(eventDetail)){
+                var event = document.createEvent('CustomEvent');
+                event.initCustomEvent(eventName, bubbles, true,eventDetail);
+            } else {
+
+                var eventClass = "";
+
+                switch (eventName) {
+                    case "click":
+                    case "mousedown":
+                    case "mouseup":
+                        eventClass = "MouseEvents";
+                        break;
+
+                    case "focus":
+                    case "change":
+                    case "blur":
+                    case "select":
+                        eventClass = "HTMLEvents";
+                        break;
+
+                    default:
+                        eventClass = "Event";
+                        break;
+                }
+
+                var event = document.createEvent(eventClass);
+                event.initEvent(eventName, bubbles, true);
+            }
+
             event.synthetic = true;
             el.dispatchEvent(event);
 
@@ -2248,7 +2315,10 @@
         return processDisplayObject(obj, false, true);
     }
 
-    function wireUpObject(obj, response) {
+    function wireUpObject(obj, response, attempt) {
+
+        attempt= attempt || 0;
+        attempt++;
 
         function validateFormAjax(frm) {
             validateForm(frm,
@@ -2347,8 +2417,17 @@
                             '.mura-object-content').node;
                         Mura.templates[template](context);
                     } else {
-                        console.log('Missing Client Template for:');
-                        console.log(obj.data());
+                        if(attempt < 1000){
+                            setTimeout(
+                                function(){
+                                    wireUpObject(obj,response,attempt);
+                                },
+                                1
+                            );
+                        } else {
+                            console.log('Missing Client Template for:');
+                            console.log(obj.data());
+                        }
                     }
                 }
             }
@@ -2384,8 +2463,18 @@
                         '.mura-object-content').node;
                     Mura.templates[template](context);
                 } else {
-                    console.log('Missing Client Template for:');
-                    console.log(obj.data());
+                    if(attempt < 1000){
+                        setTimeout(
+                            function(){
+                                wireUpObject(obj,response,attempt);
+                            },
+                            1
+                        );
+                    } else {
+                        console.log('Missing Client Template for:');
+                        console.log(obj.data());
+                    }
+
                 }
             }
         }
@@ -2594,6 +2683,15 @@
 
         if (obj.data('queue') != null) {
             queue = obj.data('queue');
+
+            if(typeof queue == 'string'){
+                queue=queue.toLowerCase();
+                if(queue=='no' || queue=='false'){
+                  queue=false;
+              } else {
+                  queue==true;
+              }
+            }
         }
 
         el = el.node || el;
@@ -3209,7 +3307,8 @@
                 DisplayObject: {},
                 displayObjectInstances: {},
                 holdReady: holdReady,
-                trackEvent: trackEvent
+                trackEvent: trackEvent,
+                recordEvent: trackEvent
             }
         ),
         //these are here for legacy support

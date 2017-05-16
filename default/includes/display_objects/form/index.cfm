@@ -127,13 +127,14 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 	   					 }
 
 	   					 request.cffpJS=true;
-
+						 
 	   					 objectParams.def=serializeJSON(local.formJSON);
 	   					 objectParams.ishuman=$.dspObject_Include(thefile='form/dsp_form_protect.cfm');
 						 if(!this.layoutmanager && local.formBean.getDisplayTitle() > 0){
 						 	objectParams.label=local.formBean.get('title');
 					 	 }
 	   					 objectParams.filename=local.formBean.get('filename');
+						 objectParams.name=local.formBean.get('title');
 	   					 objectParams.responsemessage=local.formBean.get('repsonseMesage');
 	   				 </cfscript>
 				 </cfif>

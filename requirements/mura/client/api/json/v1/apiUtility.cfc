@@ -12,7 +12,7 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 		if( getBean('utility').isHTTPS() || YesNoFormat(site.getUseSSL()) ){
 			var protocol="https://";
 		} else {
-			var protocol="http://";
+			var protocol=©"http://";
 		}
 
 		*/
@@ -185,6 +185,7 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 		};
 		}
 
+		result['entityname']=iterator.getEntityName();
 
 		if(!arguments.expanded &&
 			!(isDefined('arguments.baseURL')) || !len(arguments.baseURL)){
@@ -212,7 +213,8 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 
 		result.links={
 			'self'=arguments.baseURL & "&pageIndex=" & result.pageIndex,
-			'entities'=getEndpoint()
+			'entities'=getEndpoint(),
+			'properties'='#getEndpoint()#/#iterator.getEntityName()#/properties'
 		};
 
 		if(result.pageIndex > 1){
@@ -286,11 +288,27 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 					params['access_token']=headers['X-access_token'];
 				}
 
+				var isBasicAuth=false;
+
+				if( structKeyExists( headers, 'Authorization' )){
+					var tokentype=listFirst(headers['Authorization'],' ');
+					var tokenvalue=listLast(headers['Authorization'],' ');
+
+					if(tokentype=='Basic'){
+						tokenvalue=ToString( ToBinary( tokenvalue ) );
+						params['client_id']=listFirst(tokenvalue,":");
+						params['client_secret']=listLast(tokenvalue,":");
+						isBasicAuth=true;
+					} else if(tokentype=='Bearer') {
+						params['access_token']=tokenvalue;
+					}
+				}
+
 				if(isDefined('params.access_token')){
 					var token=getBean('oauthToken').loadBy(token=params.access_token);
 					structDelete(params,'access_token');
 					structDelete(url,'access_token');
-					if(!token.exists() || token.getGrantType() != 'client_credentials'){
+					if(!token.exists() || !listFind('client_credentials,authorization_code',token.getGrantType())){
 						params.method='Not Available';
 						throw(type='invalidAccessToken');
 					} else if (token.isExpired()){
@@ -306,7 +324,7 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 								params.method='undefined';
 								throw(type='invalidAccessToken');
 							} else {
-								var clientAccount=oauthclient.getUser();
+								var clientAccount=token.getUser();
 
 								if(!clientAccount.exists()){
 									params.method='undefined';
@@ -318,61 +336,199 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 							}
 						}
 					}
-				} else if(!(isDefined('params.client_id') && isdefined('params.client_secret'))){
+				} else if(!(isDefined('params.client_id') || isDefined('params.refresh_token'))){
 					params.method='Not Available';
 					structDelete(params,'client_id');
 					structDelete(params,'client_secret');
+					structDelete(params,'refresh_token');
+					structDelete(url,'client_id');
+					structDelete(url,'client_secret');
+					structDelete(url,'refresh_token');
 					throw(type='authorization');
 				} else {
 					var oauthclient=getBean('oauthClient').loadBy(clientid=params.client_id);
 
-					//WriteDump(credentials.getAllValues());abort;
-					if(!oauthclient.exists() || oauthclient.getClientSecret() != params.client_secret){
+					//WriteDump(oauthclient.getAllValues());abort;
+					if(!oauthclient.exists()){
 						params.method='Not Available';
-						structDelete(params,'client_id');
-						structDelete(params,'client_secret');
-						structDelete(url,'client_id');
-						structDelete(url,'client_secret');
+						params={
+							method='getOAuthToken'
+						};
 						throw(type='authorization');
 					} else {
-						var clientAccount=oauthclient.getUser();
-						structDelete(url,'client_id');
-						structDelete(url,'client_secret');
-						if(!clientAccount.exists()){
-							params.method='undefined';
-							structDelete(params,'client_id');
-							structDelete(params,'client_secret');
-							throw(type='authorization');
-						} else {
-							if(((arrayLen(pathInfo) == 6
-								&& pathInfo[5]=='oauth'
-								&& pathInfo[6]=='token')
-								|| (
-									arrayLen(pathInfo) == 5
-									&& pathInfo[4]=='oauth'
-									&& pathInfo[5]=='token'
-								))
-								&& isdefined('params.grant_type')
-								&& params.grant_type == 'client_credentials'){
+						if(arrayLen(pathInfo) == 6
+							&& pathInfo[5]=='oauth'
+							||
+								arrayLen(pathInfo) == 5
+								&& (
+									pathInfo[4]=='oauth' || pathInfo[5]=='oauth'
+								)
+							){
+
+							param name="params.grant_type" default="invalid";
+
+							params.method='getOAuthToken';
+
+							if(params.grant_type == 'authorization_code'){
+								if(oauthclient.getGrantType()!='authorization_code' || oauthclient.getClientSecret() != params.client_secret){
+									structDelete(params,'client_id');
+									structDelete(params,'client_secret');
+									throw(type='authorization');
+								}
+
+								param name="params.code" default="invalid";
+								param name="params.redirect_uri" default="invalid";
+								var token=getBean('oauthToken').loadBy(clientid=params.client_id,accessCode=params.code);
+								var clientAccount=token.getUser();
+
+								if(!token.exists() || isExpired.isExpired() || !clientAccount.exists() || !oauthclient.isValidRedirectURI(params.redirect_uri)){
+									params={
+										method='getOAuthToken'
+									};
+
+									throw(type='authorization');
+								} else {
+									result=serializeResponse(
+										statusCode=200,
+										response={'apiversion'=getApiVersion(),
+										'method'=params.method,
+										'params'=getParamsWithOutMethod(params),
+										'data'={
+											'token_type'='Bearer',
+											'access_token'=token.getToken(),
+											'expires_in'=token.getExpiresIn(),
+											'expires_at'=token.getExpiresAt(),
+											'refresh_token'=oauthclient.generateToken(granttype='refresh_token').getToken()
+										 }});
+
+									return result;
+								}
+							} else if(params.grant_type == 'password'){
+								if(oauthclient.getGrantType()!='password' || oauthclient.getClientSecret() != params.client_secret){
+									params={
+										method='getOAuthToken'
+									};
+									throw(type='authorization');
+								}
+
+								param name="params.username" default="";
+								param name="params.password" default="";
+
+								var clientAccount=getBean('userUtility').lookupByCredentials(username=params.username,password=params.password,siteid=variables.siteid);
+
+								if(!clientAccount.exists()){
+									params={
+										method='getOAuthToken'
+									};
+									throw(type='authorization');
+								} else {
+									var token=oauthclient.generateToken(granttype='password',userid=clientAccount.getUserID());
+									result=serializeResponse(
+										statusCode=200,
+										response={'apiversion'=getApiVersion(),
+										'method'=params.method,
+										'params'=getParamsWithOutMethod(params),
+										'data'={
+											'token_type'='Bearer',
+											'access_token'=token.getToken(),
+											'expires_in'=token.getExpiresIn(),
+											'expires_at'=token.getExpiresAt()
+										 }});
+
+									return result;
+								}
+							} else if(params.grant_type == 'client_credentials'){
+								if(oauthclient.getGrantType()!='client_credentials' || oauthclient.getClientSecret() != params.client_secret){
+									params={
+										method='getOAuthToken'
+									};
+									throw(type='authorization');
+								}
+
 								var token=oauthclient.generateToken(granttype='client_credentials');
-								params.method='getOAuthToken';
+								var clientAccount=token.getUser();
+
+								if(!clientAccount.exists()){
+									params={
+										method='getOAuthToken'
+									};
+									throw(type='authorization');
+								} else {
+									result=serializeResponse(
+										statusCode=200,
+										response={'apiversion'=getApiVersion(),
+										'method'=params.method,
+										'params'=getParamsWithOutMethod(params),
+										'data'={
+											'token_type'='Bearer',
+											'access_token'=token.getToken(),
+											'expires_in'=token.getExpiresIn(),
+											'expires_at'=token.getExpiresAt()
+										 }});
+
+									return result;
+								}
+							} else if(params.grant_type == 'refresh_token'){
+								//IF REFRESH_TOKEN WAS NOT SUBMITTED THROW AN ERROR
+								if(!isDefined('params.refresh_token')){
+									params={
+										method='getOAuthToken'
+									};
+									throw(type='authorization');
+								}
+
+								var refreshToken=getBean('oauthToken').loadBy(token=params.refresh_token,granttype='refresh_token');
+								var clientAccount=refreshToken.getUser();
+
+								//IF THE REFRESH_TOKEN OR ASSOCIATED USER DOES NOT EXIST OR IS EXPIRED THROW AN ERROR
+								if(!clientAccount.exists() || !refreshToken.exists() || refreshToken.isExpired()){
+									if(refreshToken.exists() && refreshToken.isExpired()){
+										refreshToken.delete();
+									}
+									params={
+										method='getOAuthToken'
+									};
+									throw(type='invalid_token');
+								}
+
+								var token=oauthclient.generateToken(granttype='client_credentials',userid=clientAccount.getUserID());
+
 								result=serializeResponse(
 									statusCode=200,
 									response={'apiversion'=getApiVersion(),
 									'method'=params.method,
 									'params'=getParamsWithOutMethod(params),
 									'data'={
+										'token_type'='Bearer',
 										'access_token'=token.getToken(),
 										'expires_in'=token.getExpiresIn(),
-										'expires_at'=token.getExpiresAt()
+										'expires_at'=token.getExpiresAt(),
+										'refresh_token'=refreshToken.getToken()
 									 }});
+
+
 								return result;
 							} else {
-								structDelete(params,'client_id');
-								structDelete(params,'client_secret');
-								clientAccount.login();
+								//IF VALID GRANT_TYPE WAS NOT SUBMITTED THROW AN ERROR
+								params={
+									method='getOAuthToken'
+								};
+								throw(type='authorization');
+							}
+						} else {
+							//USING CLIENT_ID AND CLIENT_SECRET AS BASIC AUTH
+							//ONLY WORKS WITH CLIENTS WITH CLIENT_CREDENTIALS GRANTTYPE
+							structDelete(params,'client_id');
+							structDelete(params,'client_secret');
+
+							if(!isBasicAuth){
+								params={
+									method='getOAuthToken'
+								};
+								throw(type='authorization');
 							}
 
+							oauthclient.getUser().login();
 						}
 					}
 				}
@@ -572,6 +728,30 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 								result=findCrumbArray(argumentCollection=params);
 								return serializeResponse(statusCode=200,response={'apiversion'=getApiVersion(),'method'='findCrumbArray','params'=getParamsWithOutMethod(params),'data'=result});
 
+							} else if (isDefined('application.objectmappings.#params.entityName#.remoteFunctions.#pathInfo[4]#')) {
+								params.method=pathInfo[4];
+								url.method=pathInfo[4];
+								var entity=getBean(params.entityName);
+
+								if(params.entityName=='content'){
+									var loadByArgs={
+										siteid=params.siteid,
+										contentid=params.id
+									};
+								} else {
+									var loadByArgs={
+										siteid=params.siteid,
+										'#entity.getPrimaryKey()#'=params.id
+									};
+								}
+
+								entity.loadBy(argumentCollection=loadByArgs);
+
+								structDelete(params,'id');
+
+								var result=evaluate('entity.#pathInfo[4]#(argumentCollection=params)');
+								return serializeResponse(statusCode=200,response={'apiversion'=getApiVersion(),'method'=params.method,'params'=getParamsWithOutMethod(params),'data'=result});
+
 							} else if(isDefined('application.objectmappings.#params.entityName#.properties.#pathInfo[4]#')
 							&& structKeyExists(application.objectmappings[params.entityName].properties[pathInfo[4]],'cfc') ){
 								var relationship=application.objectmappings[params.entityName].properties[pathInfo[4]];
@@ -649,6 +829,13 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 						}
 					} else if(listFind('new,properties',pathInfo[3])){
 						params.id=pathInfo[3];
+					} else if (isDefined('application.objectmappings.#params.entityName#.remoteFunctions.#pathInfo[3]#')) {
+						params.method=pathInfo[3];
+						url.method=pathInfo[3];
+
+						var entity=getBean(params.entityName);
+						var result=evaluate('entity.#pathInfo[3]#(argumentCollection=params)');
+						return serializeResponse(statusCode=200,response={'apiversion'=getApiVersion(),'method'=params.method,'params'=getParamsWithOutMethod(params),'data'=result});
 					} else if (params.entityName=='content') {
 						params.id=pathInfo[3];
 						var filenamestart=3;
@@ -769,12 +956,12 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 
 		catch (invalidAccessToken e){
 			param name="params.method" default="undefined";
-			return serializeResponse(statusCode=401,response={'apiversion'=getApiVersion(),'method'=params.method,'params'=getParamsWithOutMethod(params),'error'={code='invalid_request','message'='Invalid Access Token'}});
+			return serializeResponse(statusCode=401,response={'apiversion'=getApiVersion(),'method'=params.method,'params'=getParamsWithOutMethod(params),'error'={code='invalid_token','message'='Invalid Access Token'}});
 		}
 
 		catch (accessTokenExpired e){
 			param name="params.method" default="undefined";
-			return serializeResponse(statusCode=401,response={'apiversion'=getApiVersion(),'method'=params.method,'params'=getParamsWithOutMethod(params),'error'={code='invalid_request','message'='Access Token Expired'}});
+			return serializeResponse(statusCode=401,response={'apiversion'=getApiVersion(),'method'=params.method,'params'=getParamsWithOutMethod(params),'error'={code='invalid_token','message'='Access Token Expired'}});
 		}
 
 		catch (disabled e){
@@ -878,13 +1065,13 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 
 		if(arrayLen(propArray)){
 			for(var p in propArray){
-				if(props[p].persistent){
+				if(props[p].persistent || structKeyExists(props[p],'cfc')){
 					arrayAppend(returnArray,applyPropertyFormat(props[p]));
 				}
 			}
 		} else {
 			for(var p in props){
-				if(props[p].persistent){
+				if(props[p].persistent || structKeyExists(props[p],'cfc')){
 					arrayAppend(returnArray,applyPropertyFormat(props[p]));
 				}
 			}
@@ -1114,13 +1301,18 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 	}
 
 	function login(username,password,siteid,lockdownCheck=false,lockdownExpires=''){
+		var $=getBean('$').init(arguments.siteid);
 
-		var result=getBean('userUtility').login(argumentCollection=arguments);
+		if($.validateCSRFTokens(context='login')){
+			var result=getBean('userUtility').login(argumentCollection=arguments);
 
-		if(result){
-			return {'status'='success'};
+			if(result){
+				return {'status'='success'};
+			} else {
+				return {'status'='failed'};
+			}
 		} else {
-			return {'status'='failed'};
+			return {'status'='Invalid CSFR Tokens'};
 		}
 	}
 
@@ -1445,7 +1637,7 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 			var pk=entity.getPrimaryKey();
 		}
 
-		var loadparams={'#pk#'=''};
+		var loadparams={'#pk#'=createUUID()};
 		entity.loadBy(argumentCollection=loadparams);
 
 		if(!allowAccess(entity,$)){
@@ -1666,6 +1858,10 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 
 	function findQuery(entityName,siteid,params,queryString=cgi.QUERY_STRING,expand='',expanded=false){
 
+		if(arguments.entityname=='entityname'){
+			return findAll(argumentCollection=arguments);
+		}
+
 		param name="arguments.params" default=url;
 
 		var $=getBean('$').init(arguments.siteid);
@@ -1762,35 +1958,35 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 						baseURL=baseURL & '=' & esapiEncode('url',params[p]);
 					}
 
-					if(!listFindNoCase('maxItems,pageIndex,itemsPerPage,sortBy,sortDirection,contentpoolid,shownavonly,showexcludesearch,includehomepage',p)){
+					if(!listFindNoCase('_cacheid,fields,entityname,method,maxItems,pageIndex,itemsPerPage,sortBy,sortDirection,contentpoolid,shownavonly,showexcludesearch,includehomepage',p)){
 						if(propName == 'sort'){
 							advancedsort=listAppend(advancedsort,arguments.params[p]);
 						} else if(!(entity.getEntityName()=='user' && propName=='isPublic')){
-							if(entity.getEnityName()=='user' && propName=='groupid'){
-								feed.setGroupID(arguments.params[p]);
-							} else if(entity.valueExists(propName)){
-								var condition="eq";
-								var criteria=arguments.params[p];
+								if(entity.getEnityName()=='user' && propName=='groupid'){
+									feed.setGroupID(arguments.params[p]);
+								} else if(propName=='or'){
+									relationship='or';
+								} else if(listFindNoCase('openGrouping,orOpenGrouping,andOpenGrouping,closeGrouping',propName)){
+									feed.addParam(relationship=p);
+									relationship='and';
+								} else if(propname=='innerJoin'){
+									feed.innerJoin(relatedEntity=params[p]);
+								} else if(propname=='leftJoin'){
+									feed.leftJoin(relatedEntity=params[p]);
+								} else if(entity.valueExists(propName) || entity.valueExists('extendData')){
+									var condition="eq";
+									var criteria=arguments.params[p];
 
-								if(listLen(criteria,"^") > 1){
-									condition=listFirst(criteria,'^');
-									criteria=listGetAt(criteria,2,'^');
-								} else if(find('*',criteria)){
-									condition="like";
-									criteria=replace(criteria,'*','%','all');
-								}
+									if(listLen(criteria,"^") > 1){
+										condition=listFirst(criteria,'^');
+										criteria=listGetAt(criteria,2,'^');
+									} else if(find('*',criteria)){
+										condition="like";
+										criteria=replace(criteria,'*','%','all');
+									}
 
-								feed.addParam(column=propName,criteria=criteria,condition=condition,relationship=relationship);
-								relationship='and';
-							} else if(propName=='or'){
-								relationship='or';
-							} else if(listFindNoCase('openGrouping,orOpenGrouping,andOpenGrouping,closeGrouping',propName)){
-								feed.addParam(relationship=p);
-								relationship='and';
-							} else if(propname=='innerJoin'){
-								feed.innerJoin(relatedEntity=params[p]);
-							} else if(propname=='leftJoin'){
-								feed.leftJoin(relatedEntity=params[p]);
+									feed.addParam(column=propName,criteria=criteria,condition=condition,relationship=relationship);
+									relationship='and';
 							}
 						}
 					}
@@ -1808,6 +2004,7 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 			return {count=feed.getAvailableCount()};
 		} else {
 			var iterator=feed.getIterator();
+
 			setIteratorProps(iterator=iterator);
 			var returnArray=iteratorToArray(iterator=iterator,siteid=arguments.siteid,expand=arguments.expand);
 			return packageIteratorArray(iterator=iterator,itArray=returnArray,method='findQuery',baseURL=baseURL,expanded=arguments.expanded);
@@ -1884,9 +2081,7 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 			}
 		}
 
-
-		if(isDefined('params.entityname')
-			&& listFind('content,contentnav',params.entityname)
+		if(listFind('content,contentnav',arguments.feed.getEntityName())
 		){
 			if(isDefined('params.changesetid')
 			&& len(params.changesetid)){
@@ -1950,7 +2145,7 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 
   		}
 
-		if(isDefined('params.entityName') && listFind('content,contentnav',params.entityname)){
+		if(listFind('content,contentnav',arguments.feed.getEntityName())){
 			if(isDefined('arguments.params.includeHomePage')){
 				if(isBoolean(arguments.params.includeHomePage)){
 					if(arguments.params.includeHomePage){
@@ -2166,20 +2361,24 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 		return '';
 	}
 
-	function getEndPoint(mode='json'){
+	function getEndPoint(mode='json',useProtocol=true){
 		if(request.muraApiRequest){
 			var configBean=getBean('configBean');
 			if(!isDefined('request.apiEndpoint')){
 
-				if(getBean('configBean').getAdminSSL()){
-					var protocol='https';
+				if(useProtocol){
+					if(getBean('configBean').getAdminSSL()){
+						var protocol='https:';
+					} else {
+						var protocol=getBean('utility').getRequestProtocol() & ":";
+					}
 				} else {
-					var protocol=getBean('utility').getRequestProtocol();
+					var protocol='';
 				}
 
 				var domain=cgi.server_name;
 
-				request.apiEndpoint="#protocol#://#domain##configBean.getServerPort()##configBean.getContext()#/index.cfm/_api/#request.muraAPIRequestMode#/v1/#variables.siteid#";
+				request.apiEndpoint="#protocol#//#domain##configBean.getServerPort()##configBean.getContext()#/index.cfm/_api/#request.muraAPIRequestMode#/v1/#variables.siteid#";
 			}
 			return request.apiEndpoint;
 		}
@@ -2389,7 +2588,6 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 		errors={};
 
 		if(!structIsEmpty(arguments.validations)){
-
 			structAppend(errors,new mura.bean.bean()
 				.set(data)
 				.setValidations(arguments.validations)
@@ -2399,9 +2597,14 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 		}
 
 		if(isDefined('arguments.data.bean') && isDefined('arguments.data.loadby')){
+			var args={
+				'#arguments.data.loadby#'=arguments.data[arguments.data.loadby],
+				siteid=arguments.data.siteid
+			};
+
 			structAppend(errors,
 				getBean(arguments.data.bean)
-				.loadBy(arguments.data.loadby=arguments.data[arguments.data.loadby],siteid=arguments.data.siteid)
+				.loadBy(argumentCollection=loadArgs)
 				.set(arguments.data)
 				.validate(arguments.data.fields)
 				.getErrors()
@@ -2700,10 +2903,158 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 		return {url=$.getURLForImage(argumentCollection=arguments)};
 	}
 
+	function getSwaggerPropertyDataType(datatype){
+
+		switch(arguments.datatype){
+			case 'int':
+			case 'integer':
+			case 'numeric':
+				var result= {
+					'type'='integer',
+					'format'='int64'
+				};
+				break;
+			case 'smallint':
+			case 'tinyint':
+			case 'meduimint':
+			case 'bit':
+				var result= {
+					'type'='integer',
+					'format'='int32'
+				};
+				break;
+			case 'boolean':
+				var result= {
+					'type'='boolean'
+				};
+				break;
+			case 'float':
+				var result= {
+					'type'='float'
+				};
+				break;
+			case 'double':
+				var result= {
+					'type'='double'
+				};
+				break;
+			case 'date':
+				var result= {
+					"type"= "string",
+					"format"= "date"
+				};
+				break;
+			case 'datetime':
+			case 'timestamp':
+				var result={
+					"type": "string",
+					"format": "date-time"
+				};
+				break;
+			default:
+				var result= {
+					'type'='string'
+				};
+		}
+
+		return result;
+
+	}
+
+	function getSwaggerEntityParams(entity,_in="query",idInPath=false,method='get'){
+		var response=[];
+		var item='';
+		var p='';
+		var properties=arguments.entity.getProperties();
+		var map={};
+
+		if(arguments.idInPath){
+			if(entity.getEntityName()=='content'){
+				var primarykey='contentid';
+			} else {
+				var primarykey=lcase(entity.getPrimaryKey());
+			}
+
+			arrayAppend(response,{
+					"name"= primarykey,
+					"in"= "path",
+					"required"= true,
+					"type"= "string"
+				});
+		}
+
+		for(p in properties){
+			if(properties['#p#'].persistent
+				&& (
+					!structKeyExists(properties['#p#'],'fkcolumn')
+					 || properties['#p#'].fkcolumn != 'primarykey'
+					 )
+				&& !(arguments.idInPath && p==arguments.entity.getPrimaryKey())
+				){
+
+				item={};
+
+				if(structKeyExists(properties['#p#'],'fkcolumn')){
+					item["name"]=lcase(properties['#p#'].fkcolumn);
+				} else {
+					item["name"]=lcase(properties['#p#'].name);
+				}
+
+				if(!structKeyExists(map,item.name)){
+					item["in"]= arguments._in;
+
+					if(arguments.method=='save'){
+						item["required"]= properties['#p#'].required;
+					} else {
+						item["required"]= false;
+					}
+
+					structAppend(item,getSwaggerPropertyDataType(properties['#p#'].datatype),true);
+					arrayAppend(response,item);
+
+					map['#item.name#']=true;
+				}
+
+			}
+		}
+
+		return response;
+	}
+
+	function getSwaggerEntityProps(entity){
+		var response={
+			"links"={
+				"$ref"= "##/definitions/links"
+			}
+		};
+		var p='';
+		var properties=arguments.entity.getProperties();
+
+
+		for(p in properties){
+			if(properties['#p#'].persistent
+				&& (
+					!structKeyExists(properties['#p#'],'fkcolumn')
+					 || properties['#p#'].fkcolumn != 'primarykey'
+				)){
+
+				if(structKeyExists(properties['#p#'],'fkcolumn')){
+					response['#lcase(properties['#p#'].fkcolumn)#']=getSwaggerPropertyDataType(properties['#p#'].datatype);
+				} else {
+					response['#lcase(properties['#p#'].name)#']=getSwaggerPropertyDataType(properties['#p#'].datatype);
+				}
+			}
+		}
+
+		return response;
+	}
+
 	function swagger(siteid,params){
 		param name="arguments.params" default=url;
-
+		param name="arguments.params.entities" default="";
 		var $=getBean('$').init(arguments.siteid);
+		var entity='';
+		var primarykey='';
 
 		var result={
 			"swagger"= "2.0",
@@ -2711,7 +3062,7 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 				"description"= "This is the JSON API for #$.siteConfig().getRootPath(complete=1)#",
 				"version"= "1.0.0",
 				"title"= $.siteConfig('site'),
-				"termsOfService"= "http://swagger.io/terms/",
+				"termsOfService"= "https://getmura.com",
 				"contact"= {
 				"email"= $.siteConfig('contact')
 			},
@@ -2720,15 +3071,15 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 				"url"= "https://github.com/blueriver/MuraCMS/blob/develop/license.txt"
 			}
 			},
-			"host": $.siteConfig('domain'),
-			"basePath"= $.siteConfig().getApi('JSON','v1').getEndPoint(),
-			"tags": [
+			"host"= $.siteConfig('domain'),
+			"basePath"= replace($.siteConfig().getApi('JSON','v1').getEndPoint(useProtocol=false,mode='rest'),'/json/','/rest/'),
+			"tags"= [
 				{
 					"name"= "Mura CMS",
 					"description"= "Open source content management system",
 					"externalDocs"= {
 					"description"= "Find out more",
-					"url": "http://www.getmura.com"
+					"url"= "http://www.getmura.com"
 					}
 				}
 			],
@@ -2742,45 +3093,335 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 		var entityKeys=listToArray(ListSort(StructKeyList(variables.config.entities),'textnocase'));
 
 		for(var i in entityKeys){
-			if(allowAccess(i,$,false)){
+			if(i != 'contentnav'){
+				if($.getServiceFactory().containsBean(i)){
+					entity=$.getBean(i);
 
-				result['paths']['/#lcase(i)#']={
-					"post"= {
-						"tags"= [
-							i
-						],
-						"summary"= "Saves a #i#",
-						"description"= "",
-						"operationId"= "save#$.getBean('utility').setProperCase(i)#",
-						"consumes"= [
-							"application/json"
-						],
-						"produces"= [
-							"application/json"
-						],
-						"parameters"= [
+					if((!len(arguments.params.entities) || listFindNoCase(arguments.params.entities,i)) && len(entity.getPrimaryKey()) && allowAccess(entity,$,false)){
 
-						],
-						"responses"= {
-							"405"= {
-								"description": "Invalid input"
-							}
-						},
-						"security"= [
-							{
-								"#$.event('siteid')#_auth"= [
-									"write:#lcase(i)#",
-									"read:#lcase(i)#"
+						if(entity.getEntityName()=='content'){
+							primarykey='contentid';
+						} else {
+							primarykey=lcase(entity.getPrimaryKey());
+						}
+
+						result['paths']['/#lcase(i)#']={
+							"get"= {
+								"tags"= [
+									lcase(i)
+								],
+								"summary"= "lists #i#",
+								"description"= "",
+								"operationId"= "list#$.getBean('utility').setProperCase(i)#",
+								"consumes"= [
+									"application/json"
+								],
+								"produces"= [
+									"application/json"
+								],
+								"parameters"= getSwaggerEntityParams(entity=entity,_in="query",idInPath=false,method='findQuery'),
+								"responses"= {
+									"200"= {
+										"description"= "Collection of #i#",
+										"schema"= {
+											"type"="object",
+											"properties"={
+												"data"={
+													"$ref"="##/definitions/#lcase(i)#collection"
+												}
+											}
+										}
+									},
+									"405"= {
+										"description"= "Invalid input"
+									}
+								},
+								"security"= [
+									{
+										"oauthSecurity"= []
+									},
+									{
+										"basic"= []
+									}
 								]
+
+							},
+							"post"= {
+								"tags"= [
+									i
+								],
+								"summary"= "Saves a #i#",
+								"description"= "",
+								"operationId"= "save#$.getBean('utility').setProperCase(i)#",
+								"consumes"= [
+									"multipart/form-data"
+								],
+								"produces"= [
+									"application/json"
+								],
+								"parameters"= getSwaggerEntityParams(entity=entity,_in='formData',idInPath=false,method='save'),
+								"responses"= {
+									"200"= {
+										"description"= "#i# entity",
+										"schema"= {
+											"type"="object",
+											"properties"={
+												"data"={
+													"$ref"="##/definitions/#lcase(i)#"
+												}
+											}
+										}
+									},
+									"405"= {
+										"description"= "Invalid input"
+									}
+								},
+								"security"= [
+									{
+										"oauthSecurity"= []
+									},
+									{
+										"basic"= []
+									}
+								]
+
+							},
+							"delete"= {
+								"tags"= [
+									i
+								],
+								"summary"= "Deletes a #i#",
+								"description"= "",
+								"operationId"= "delete#$.getBean('utility').setProperCase(i)#",
+								"consumes"= [
+									"multipart/form-data"
+								],
+								"produces"= [
+									"application/json"
+								],
+								"parameters"= [
+									{
+										"name"= lcase(entity.getPrimaryKey()),
+										"in"= "formData",
+										"description"= "#i# id to delete",
+										"required"= true,
+										"type"= "string"
+									}
+								],
+								"responses"= {
+									"200"= {
+										"description"= "#i# entity",
+										"schema"= {
+											"type"="object",
+											"properties"={
+												"data"={
+													"$ref"="##/definitions/#lcase(i)#"
+												}
+											}
+										}
+									},
+									"405"= {
+										"description"= "Invalid input"
+									}
+								},
+								"security"= [
+									{
+										"oauthSecurity"= []
+									},
+									{
+										"basic"= []
+									}
+								]
+
 							}
-						]
+						};
+
+						result['paths']['/#lcase(i)#/{#primaryKey#}']={
+							"get"= {
+								"tags"= [
+									i
+								],
+								"summary"= "read an #i#",
+								"description"= "",
+								"operationId"= "read#$.getBean('utility').setProperCase(i)#ByPath",
+								"consumes"= [],
+								"produces"= [
+									"application/json"
+								],
+								"parameters"= [
+										{
+											"name"= primarykey,
+											"in"= "path",
+											"description"= "#i# id to get",
+											"required"= true,
+											"type"= "string"
+										}
+									],
+								"responses"= {
+									"200"= {
+										"description"= "#i# entity",
+										"schema"= {
+											"type"="object",
+											"properties"={
+												"data"={
+													"$ref"="##/definitions/#lcase(i)#"
+												}
+											}
+										}
+									},
+									"405"= {
+										"description"= "Invalid input"
+									}
+								},
+								"security"= [
+									{
+										"oauthSecurity"= []
+									},
+									{
+										"basic"= []
+									}
+								]
+
+							},
+							"post"= {
+								"tags"= [
+									i
+								],
+								"summary"= "Saves a #i#",
+								"description"= "",
+								"operationId"= "save#$.getBean('utility').setProperCase(i)#ByPath",
+								"consumes"= [
+									"multipart/form-data"
+								],
+								"produces"= [
+									"application/json"
+								],
+								"parameters"= getSwaggerEntityParams(entity=entity,_in='formData',idInPath=true, method='save'),
+								"responses"= {
+									"200"= {
+										"description"= "#i# entity",
+										"schema"= {
+											"type"="object",
+											"properties"={
+												"data"={
+													"$ref"="##/definitions/#lcase(i)#"
+												}
+											}
+										}
+									},
+									"405"= {
+										"description"= "Invalid input"
+									}
+								},
+								"security"= [
+									{
+										"oauthSecurity"= []
+									},
+									{
+										"basic"= []
+									}
+								]
+
+							},
+							"delete"= {
+								"tags"= [
+									i
+								],
+								"summary"= "Deletes a #i#",
+								"description"= "",
+								"operationId"= "delete#$.getBean('utility').setProperCase(i)#ByPath",
+								"consumes"= [],
+								"produces"= [
+									"application/json"
+								],
+								"parameters"= [
+									{
+										"name"= primarykey,
+										"in"= "path",
+										"description"= "#i# id to delete",
+										"required"= true,
+										"type"= "string"
+									}
+								],
+								"responses"= {
+									"200"= {
+										"description"= "#i# entity",
+										"schema"= {
+											"type"="object",
+											"properties"={
+												"data"={
+													"$ref"="##/definitions/#lcase(i)#"
+												}
+											}
+										}
+									},
+									"405"= {
+										"description"= "Invalid input"
+									}
+								},
+								"security"= [
+									{
+										"oauthSecurity"= []
+									},
+									{
+										"basic"= []
+									}
+								]
+
+							}
+						};
+
+						result["definitions"]["#lcase(i)#"]={
+							"type"="object",
+							"properties"=getSwaggerEntityProps(entity)
+						};
+
+						result["definitions"]["#lcase(i)#collection"]={
+							"type"="object",
+							"properties"={
+								"links"={
+									"$ref"= "##/definitions/links"
+								},
+								"entityname"={"type"="string"},
+								"items"={
+									"type"="array",
+									"items"={
+										"$ref"= "##/definitions/#lcase(i)#"
+									}
+								}
+							}
+						};
 
 					}
-				};
+				}
 			}
 		}
 
-		return serializeJSON(result);
+		result["definitions"]["links"]={"type"="object","properties"={}};
+		result['securityDefinitions']= {
+			"oauthSecurity"= {
+					"type"= "oauth2",
+					"authorizationUrl"= $.siteConfig().getRootPath(complete=1),
+					"tokenUrl"=getBean('utility').getRequestProtocol() & ":" & result.basePath & "/auth",
+					"flow"= "accessCode",
+					"scopes"= {
+						/*"member"="Site member",
+						"administrator"="Site administrator",
+						"super"="Site super user"
+						*/
+					}
+			},
+			"basic"= {
+				"type"= "apiKey",
+				"name"= "Authorization",
+				"in"= "header"
+			}
+		};
+		//result["paths"]=StructSort(result["paths"],"text","asc");
+
+		result=serializeJSON(result);
+		result=replace(result,'"swagger":2.0','"swagger":"2.0"');
+		return result;
 	}
 
 }

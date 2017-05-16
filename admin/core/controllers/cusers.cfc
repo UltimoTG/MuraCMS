@@ -65,6 +65,10 @@ component persistent='false' accessors='true' output='false' extends='controller
 
 		arguments.rc.isAdmin = ListFind(rc.$.currentUser().getMemberships(), 'Admin;#rc.$.siteConfig('privateUserPoolID')#;0') || ListFind(rc.$.currentUser().getMemberships(), 'S2');
 
+		if(!ListFind(arguments.rc.$.currentUser().getMemberships(), 'S2')){
+			structDelete(arguments.rc,'s2');
+		}
+
 		if ( !(
 					IsDefined('arguments.rc.baseID')
 					&& ListLast(arguments.rc.muraAction, ':') == 'cUsers.loadExtendedAttributes'
@@ -118,7 +122,7 @@ component persistent='false' accessors='true' output='false' extends='controller
 			param name='arguments.rc.perm' default='0';
 			param name='arguments.rc.groupid' default='';
 			param name='arguments.rc.routeid' default='';
-			param name='arguments.rc.s2' default='0';
+			//param name='arguments.rc.s2' default='0';
 			param name='arguments.rc.InActive' default='0';
 			param name='arguments.rc.error' default='#{}#';
 			param name='arguments.rc.returnurl' default='';

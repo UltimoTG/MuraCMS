@@ -6,10 +6,12 @@ component extends="mura.bean.beanORM" entityName='oauthClient' table="toauthclie
     property name="tokens" fieldtype="one-to-many" cfc="oauthToken" cascade="delete";
     property name="name" datatype="varchar" required=true;
     property name="description" datatype="text";
+    property name="granttype" datatype="varchar" default="basic";
     property name="created" ormtype="timestamp";
     property name="lastupdate" datatype="timestamp";
     property name="lastupdateby" datatype="varchar" length=50;
     property name="lastupdatebidy" datatype="varchar" length=35;
+    property name="redirecturl" datatype="text";
 
     function save(){
         if(!len(get('clientsecret'))){
@@ -19,12 +21,17 @@ component extends="mura.bean.beanORM" entityName='oauthClient' table="toauthclie
         return this;
     }
 
-    function generateToken(granttype='client_credentials'){
+    function generateToken(granttype='client_credentials',userid='',redirecturl=''){
         var token=getBean('oauthToken');
+
+        if(!len(arguments.userid)){
+            arguments.userid=get('userid');
+        }
 
         var existingTokens=token.getFeed()
             .where('clientid').isEQ(get('clientid'))
             .andProp('granttype').isEQ(arguments.granttype)
+            .andProp('userid').isEQ(arguments.userid)
             .andProp('expires').isGT(now())
             .getIterator();
 
@@ -32,16 +39,22 @@ component extends="mura.bean.beanORM" entityName='oauthClient' table="toauthclie
             return existingTokens.next();
         } else {
 
-
             token.set({
                 clientid=get('clientid'),
-                granttype=arguments.granttype
-            }).save();
+                granttype=arguments.granttype,
+                userid=arguments.userid
+            });
 
-            if(arguments.granttype =='client_credentials'){
+            if(granttype=='authorization_code'){
+                token.setAccessCode(createUUID());
+            }
+
+            token.save();
+
+            if(listFind('authorization_code,client_credentials',arguments.granttype)){
                 var expiredTokens=token.getFeed()
                     .where('clientid').isEQ(get('clientid'))
-                    .andProp('granttype').isEQ('client_credentials')
+                    .andProp('granttype').isEQ(arguments.granttype)
                     .andProp('expires').isLT(dateAdd('d',-1,now()))
                     .getIterator();
 
@@ -54,6 +67,28 @@ component extends="mura.bean.beanORM" entityName='oauthClient' table="toauthclie
         }
 
         return token;
+    }
+
+    function getGrantType(){
+        if(!len(variables.instance.granttype)){
+            variables.instance.granttype='client_credentials';
+        }
+
+        return variables.instance.granttype;
+    }
+
+    function isValidRedirectURI(redirect_uri){
+        if(!len(variables.instance.redirecturl)){
+            return true;
+        }
+
+        for(var i in listToArray(replace(variables.redirecturl,chr(13)&chr(10),"|"),"|")){
+            if(i==arguments.redirect_uri){
+                return true;
+            }
+        }
+
+        return false;
     }
 
 }

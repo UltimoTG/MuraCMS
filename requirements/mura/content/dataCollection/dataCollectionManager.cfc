@@ -76,7 +76,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 	<cfset var thefield = "" />
 	<cfset var f = "" />
 	<cfset var theXml = "" />
-	<cfset var ignoreList = 'INSTANCEID,OBJECTID,PERM,OBJECT,OBJECTNAME,OBJECTICONCLASS,VIEW,INITED,LABEL,ASYNC,REPONSECHART,ISCONFIGURATOR,CONTENTID,CONTENTHISTID,NOCACHE,DOACTION,SUBMIT,MLID,SITEID,FORMID,POLLLIST,REDIRECT_URL,REDIRECT_LABEL,X,Y,UKEY,HKEY,formfield1234567891,formfield1234567892,formfield1234567893,formfield1234567894,useProtect,linkservid,useReCAPTCHA,g-recaptcha-response,grecaptcharesponse' />
+	<cfset var ignoreList = 'ASYNC,CSS,CSRF_TOKEN,CSRF_TOKEN_EXPIRES,INSTANCEID,OBJECTICONCLASS,OBJECTID,PERM,OBJECT,OBJECTNAME,OBJECTICONCLASS,VIEW,INITED,LABEL,ASYNC,REPONSECHART,ISCONFIGURATOR,CONTENTID,CONTENTHISTID,NOCACHE,DOACTION,SUBMIT,MLID,SITEID,FORMID,POLLLIST,REDIRECT_URL,REDIRECT_LABEL,X,Y,UKEY,HKEY,formfield1234567891,formfield1234567892,formfield1234567893,formfield1234567894,INITED,useProtect,linkservid,useReCAPTCHA,g-recaptcha-response,grecaptcharesponse,RENDER,RESPONSECHART' />
 	<cfset var scopeCheck=structNew()>
 
 	<cfparam name="info.fieldnames" default=""/>
@@ -299,7 +299,7 @@ order by tformresponsepackets.entered asc
 <cfset finder=refind('\svalue="##.+?##"\s',body,1,"true")>
 </cfloop>
 
-<cfset body=rereplacenocase(arguments.preBody,'</form>','#formHTML#</form>')>
+<cfset body=rereplacenocase(arguments.preBody,'</form>','#formHTML##arguments.$.renderCSRFTokens(format="form",context=arguments.formID)#</form>')>
 <cfif not find(frmID,body)>
 	<cfset body=rereplacenocase(body,'<form','<form id="#frmID#" ')>
 </cfif>
