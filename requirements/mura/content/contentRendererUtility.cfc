@@ -963,7 +963,7 @@
 		<cfset openingDiv=openingDiv & '" data-object="#esapiEncode('html_attr',lcase(arguments.object))#" data-objectid="#esapiEncode('html_attr',arguments.objectid)#" data-instanceid="#arguments.objectparams.instanceid#"'>
 
 		<cfloop collection="#arguments.objectparams#" item="local.i">
-			<cfif len(local.i) and local.i neq 'runtime'>
+			<cfif len(local.i) and not listFindNoCase('runtime,object,objectid,instanceid',local.i)>
 				<cfset openingDiv=openingDiv & ' data-#esapiEncode('html_attr',lcase(local.i))#="#esapiEncode('html_attr', serializeObjectParam(arguments.objectparams[local.i]))#"'>
 			</cfif>
 		</cfloop>
@@ -1431,6 +1431,7 @@
 		<cfset var objectReturnFormat=(arguments.returnFormat eq 'Array')?'struct':'default'>
 
 		<cfparam name="request.muraActiveRegions" default="">
+		<cfparam name="request.muraRegionObjectCounts" default="#structNew()#">
 
 		<cfset request.muraActiveRegions=listAppend(request.muraActiveRegions,arguments.columnid)>
 
@@ -1441,6 +1442,7 @@
 		</cfif>
 
 		<cfset request.muraRegionID=arguments.columnID>
+		<cfset request.muraRegionObjectCounts['region#arguments.columnID#']=0>
 
 		<cfif perm and arguments.renderer.getShowToolbar() and arguments.renderer.showInlineEditor>
 			<cfif listLen($.siteConfig('columnnames'),'^') gte arguments.columnid>
@@ -1477,6 +1479,7 @@
 				and event.getValue('inheritedObjects') neq ''
 				and event.getValue('contentBean').getcontenthistid() eq arguments.contentHistID>
 					<cfset rsObjects=getBean('contentGateway').getObjectInheritance(arguments.columnID,event.getValue('inheritedObjects'),event.getValue('siteID'))>
+					<cfset request.muraRegionObjectCounts['region#arguments.columnID#']=rsObjects.recordcount>
 					<cfloop query="rsObjects">
 						<cfset theObject=arguments.renderer.dspObject(object=rsObjects.object,objectid=rsObjects.objectid,siteid=event.getValue('siteID'), params=rsObjects.params, assignmentid=event.getValue('inheritedObjects'), regionid=arguments.columnID, orderno=rsObjects.orderno, hasConfigurator=len(rsObjects.configuratorInit),assignmentPerm=inheritedObjectsPerm,objectname=rsObjects.name,returnformat=objectReturnFormat)>
 						<cfif isSimpleValue(theObject)>
@@ -1488,6 +1491,7 @@
 			</cfif>
 
 			<cfset rsObjects=getBean('contentGateway').getObjects(arguments.columnID,arguments.contentHistID,event.getValue('siteID'))>
+			<cfset request.muraRegionObjectCounts['region#arguments.columnID#']=request.muraRegionObjectCounts['region#arguments.columnID#'] + rsObjects.recordcount>
 			<cfloop query="rsObjects">
 				<cfset theObject=arguments.renderer.dspObject(object=rsObjects.object,objectid=rsObjects.objectid,siteid=event.getValue('siteID'), params=rsObjects.params, assignmentid=arguments.contentHistID, regionid=arguments.columnID, orderno=rsObjects.orderno, hasConfigurator=len(rsObjects.configuratorInit),assignmentPerm=$.event('r').perm,objectname=rsObjects.name,returnformat=objectReturnFormat)>
 				<cfif isSimpleValue(theObject)>
@@ -1919,12 +1923,16 @@
 
 	<cffunction name="lookupCustomContentTypeBody" output="false" hint="This is for looking up overrides in dspBody">
 		<cfargument name="$">
+
 		<cfset var safesubtype=REReplace(arguments.$.content().getSubType(), "[^a-zA-Z0-9_]", "", "ALL")>
 		<cfset var eventOutput="">
-
+		<cfset var displayObjectKey='#arguments.$.content().getType()#_#safesubtype#'>
+		<cfset var filePath="">
 		<!--- START Checking for Override via Event Model --->
+		<cfset eventOutput=arguments.$.renderEvent("onBodyRender")>
+
 		<!--- For backwards compatibility --->
-		<cfif arguments.$.content().getType() eq 'Folder'>
+		<cfif not len(eventOutput) and arguments.$.content().getType() eq 'Folder'>
 			<cfset eventOutput=arguments.$.renderEvent("onPortalBodyRender")>
 			<cfif not len(eventOutput)>
 				<cfset eventOutput=arguments.$.renderEvent("onPortal#arguments.$.content().getSubType()#BodyRender")>
@@ -1945,68 +1953,7 @@
 
 		<!--- END Checking for Override via Event Model --->
 
-		<!--- START Checking for Override via content_types includes  --->
-		<cfset var filePath="">
-
-		<cfset filePath=$.siteConfig().lookupContentTypeFilePath(lcase('#arguments.$.content().getType()#_#safesubtype#/index.cfm'))>
-		<cfif len(filePath)>
-			<cfreturn {filepath=filePath}>
-		</cfif>
-
-		<cfset filePath=$.siteConfig().lookupContentTypeFilePath(lcase('#arguments.$.content().getType()##safesubtype#/index.cfm'))>
-		<cfif len(filePath)>
-			<cfreturn {filepath=filePath}>
-		</cfif>
-
-		<cfset filePath=$.siteConfig().lookupContentTypeFilePath(lcase('#arguments.$.content().getType()#/index.cfm'))>
-		<cfif len(filePath)>
-			<cfreturn {filepath=filePath}>
-		</cfif>
-
-		<!--- END Checking for Override via content_types includes--->
-
-		<!--- START Checking for Override via Display Object --->
-		<cfset var displayObjectKey='#arguments.$.content().getType()#_#safesubtype#'>
-
-		<cfif arguments.$.siteConfig().hasDisplayObject(displayObjectKey)>
-			<cfset var params=$.content().getObjectParams()>
-			<cfset params.isBodyObject=true>
-			<cfif not isdefined('params.objectname')>
-				<cfset var objectDef=arguments.$.siteConfig().getDisplayObject(displayObjectKey)>
-				<cfset params.objectname=objectDef.name>
-			</cfif>
-			<cfreturn {eventOutput=$.dspObject(objectid=$.content('contentid'),object=displayObjectKey,params=params,bodyRender=true)}>
-		</cfif>
-
-		<cfset displayObjectKey='#arguments.$.content().getType()##safesubtype#'>
-
-		<cfif arguments.$.siteConfig().hasDisplayObject(displayObjectKey)>
-		<cfset var params=$.content().getObjectParams()>
-		<cfset params.isBodyObject=true>
-		<cfif not isdefined('params.objectname')>
-			<cfset var objectDef=arguments.$.siteConfig().getDisplayObject(displayObjectKey)>
-			<cfset params.objectname=objectDef.name>
-		</cfif>
-			<cfreturn {eventOutput=$.dspObject(objectid=$.content('contentid'),object=displayObjectKey,params=params,bodyRender=true)}>
-		</cfif>
-
-		<cfset displayObjectKey=arguments.$.content().getType()>
-
-		<cfif arguments.$.siteConfig().hasDisplayObject(displayObjectKey) and arguments.$.siteConfig().getDisplayObject(displayObjectKey).custom>
-		<cfset var params=$.content().getObjectParams()>
-		<cfset params.isBodyObject=true>
-		<cfif not isdefined('params.objectname')>
-			<cfset var objectDef=arguments.$.siteConfig().getDisplayObject(displayObjectKey)>
-			<cfset params.objectname=objectDef.name>
-		</cfif>
-			<cfreturn {eventOutput=$.dspObject(objectid=$.content('contentid'),object=displayObjectKey,params=params,bodyRender=true)}>
-		</cfif>
-
-		<!--- END Checking for Override via Display Object --->
-
 		<!--- START Checking for Override via File  --->
-		<cfset var filePath="">
-
 		<cfset filePath=$.siteConfig().lookupDisplayObjectFilePath('#arguments.$.content().getType()#_#safesubtype#/index.cfm')>
 		<cfif len(filePath)>
 			<cfreturn {filepath=filePath}>
@@ -2015,13 +1962,6 @@
 		<cfset filePath=$.siteConfig().lookupDisplayObjectFilePath('#arguments.$.content().getType()##safesubtype#/index.cfm')>
 		<cfif len(filePath)>
 			<cfreturn {filepath=filePath}>
-		</cfif>
-
-		<cfif not arguments.$.siteConfig().hasDisplayObject(displayObjectKey)>
-			<cfset filePath=$.siteConfig().lookupDisplayObjectFilePath('#arguments.$.content().getType()#/index.cfm')>
-			<cfif len(filePath)>
-				<cfreturn {filepath=filePath}>
-			</cfif>
 		</cfif>
 
 		<cfset filePath=$.siteConfig().lookupDisplayObjectFilePath('custom/extensions/dsp_#arguments.$.content().getType()#_#safesubtype#.cfm')>
@@ -2047,6 +1987,71 @@
 		</cfif>
 
 		<!--- END Checking for Override via File  --->
+
+		<!--- START Checking for Override via content_types includes  --->
+
+		<cfset filePath=$.siteConfig().lookupContentTypeFilePath(lcase('#arguments.$.content().getType()#_#safesubtype#/index.cfm'))>
+		<cfif len(filePath)>
+			<cfreturn {filepath=filePath}>
+		</cfif>
+
+		<cfset filePath=$.siteConfig().lookupContentTypeFilePath(lcase('#arguments.$.content().getType()##safesubtype#/index.cfm'))>
+		<cfif len(filePath)>
+			<cfreturn {filepath=filePath}>
+		</cfif>
+
+		<cfset filePath=$.siteConfig().lookupContentTypeFilePath(lcase('#arguments.$.content().getType()#/index.cfm'))>
+		<cfif len(filePath)>
+			<cfreturn {filepath=filePath}>
+		</cfif>
+
+		<cfif not arguments.$.siteConfig().hasDisplayObject(arguments.$.content().getType())>
+			<cfset filePath=$.siteConfig().lookupDisplayObjectFilePath('#arguments.$.content().getType()#/index.cfm')>
+			<cfif len(filePath)>
+				<cfreturn {filepath=filePath}>
+			</cfif>
+		</cfif>
+
+		<!--- END Checking for Override via content_types includes--->
+
+		<!--- START Checking for Override via Display Object --->
+
+		<cfif arguments.$.siteConfig().hasDisplayObject(displayObjectKey)>
+			<cfset var params=$.content().getObjectParams()>
+			<cfset params.isBodyObject=true>
+			<cfif not isdefined('params.objectname')>
+				<cfset var objectDef=arguments.$.siteConfig().getDisplayObject(displayObjectKey)>
+				<cfset params.objectname=objectDef.name>
+			</cfif>
+			<cfreturn {eventOutput=$.dspObject(objectid=$.content('contentid'),object=displayObjectKey,params=params,bodyRender=true)}>
+		</cfif>
+
+		<!---
+		<cfset displayObjectKey='#arguments.$.content().getType()##safesubtype#'>
+
+		<cfif arguments.$.siteConfig().hasDisplayObject(displayObjectKey)>
+		<cfset var params=$.content().getObjectParams()>
+		<cfset params.isBodyObject=true>
+		<cfif not isdefined('params.objectname')>
+			<cfset var objectDef=arguments.$.siteConfig().getDisplayObject(displayObjectKey)>
+			<cfset params.objectname=objectDef.name>
+		</cfif>
+			<cfreturn {eventOutput=$.dspObject(objectid=$.content('contentid'),object=displayObjectKey,params=params,bodyRender=true)}>
+		</cfif>
+
+		<cfset displayObjectKey=arguments.$.content().getType()>
+
+		<cfif arguments.$.siteConfig().hasDisplayObject(displayObjectKey) and arguments.$.siteConfig().getDisplayObject(displayObjectKey).custom>
+		<cfset var params=$.content().getObjectParams()>
+		<cfset params.isBodyObject=true>
+		<cfif not isdefined('params.objectname')>
+			<cfset var objectDef=arguments.$.siteConfig().getDisplayObject(displayObjectKey)>
+			<cfset params.objectname=objectDef.name>
+		</cfif>
+			<cfreturn {eventOutput=$.dspObject(objectid=$.content('contentid'),object=displayObjectKey,params=params,bodyRender=true)}>
+		</cfif>
+		--->
+		<!--- END Checking for Override via Display Object --->
 
 		<cfreturn {}>
 	</cffunction>

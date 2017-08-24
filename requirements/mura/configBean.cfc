@@ -51,14 +51,12 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 <cfset variables.instance.version="7.0"/>
 <cfset variables.instance.title=""/>
 <cfset variables.instance.webroot=""/>
-<cfset variables.instance.webrootmap=""/>
-<cfset variables.instance.mapdir=""/>
+<cfset variables.instance.webrootmap="muraWRM"/>
+<cfset variables.instance.mapdir="mura"/>
 <cfset variables.instance.datasource=""/>
 <cfset variables.instance.stub=""/>
 <cfset variables.instance.context=""/>
 <cfset variables.instance.admindomain=""/>
-<cfset variables.instance.accesscontrolheaders=false/>
-<cfset variables.instance.accesscontrolcredentials=false/>
 <cfset variables.instance.indexfile=""/>
 <cfset variables.instance.contact=""/>
 <cfset variables.instance.sendfrommailserverusername=true/>
@@ -70,10 +68,10 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 <cfset variables.instance.MailServerPOPPort="110"/>
 <cfset variables.instance.MailServerTLS="false"/>
 <cfset variables.instance.MailServerSSL="false" />
-<cfset variables.instance.useDefaultSMTPServer=0/>
-<cfset variables.instance.adminssl=0/>
+<cfset variables.instance.useDefaultSMTPServer=false/>
+<cfset variables.instance.adminssl=false/>
 <cfset variables.instance.forceAdminSSL=true>
-<cfset variables.instance.logEvents=0/>
+<cfset variables.instance.logEvents=false/>
 <cfset variables.instance.fileDelim="\" />
 <cfset variables.instance.dbType="mssql"/>
 <cfset variables.instance.dbUsername=""/>
@@ -97,7 +95,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 <cfset variables.instance.productionFiledir=""/>
 <cfset variables.instance.productionAssetdir=""/>
 <cfset variables.instance.productionPushMode="full"/>
-<cfset variables.instance.fileStore=""/>
+<cfset variables.instance.fileStore="fileDir"/>
 <cfset variables.instance.fileStoreAccessInfo=""/>
 <cfset variables.instance.fileStoreEndPoint="http://s3.amazonaws.com"/>
 <cfset variables.instance.tooltips=structNew()/>
@@ -108,6 +106,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 <cfset variables.instance.imageInterpolation="highQuality" />
 <cfset variables.instance.imageQuality=.95 />
 <cfset variables.instance.clusterIPList="" />
+<cfset variables.instance.enableDynamicContent=true />
 <cfset variables.instance.enableMuraTag=true />
 <cfset variables.instance.dashboard=true />
 <cfset variables.instance.sortPermission="" />
@@ -119,7 +118,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 <cfset variables.instance.siteIDInURLS=true />
 <cfset variables.instance.indexFileInURLS=true />
 <cfset variables.instance.hashURLs=false />
-<cfset variables.instance.strictExtendedData=false />
+<cfset variables.instance.strictExtendedData=true />
 <cfset variables.instance.purgeDrafts=true />
 <cfset variables.instance.createRequiredDirectories=true />
 <cfset variables.instance.confirmSaveAsDraft=true />
@@ -133,7 +132,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 <cfset variables.instance.tempDir="" />
 <cfset variables.instance.autoresetpasswords=true />
 <cfset variables.instance.encryptionKey=hash(getCurrentTemplatePath()) />
-<cfset variables.instance.uselegacysessions=true />
+<cfset variables.instance.uselegacysessions=false />
 <cfset variables.instance.customUrlVarDelimiters="_">
 <cfset variables.instance.strongPasswordRegex="(?=^.{7,15}$)(?=.*\d)(?![.\n])(?=.*[a-zA-Z]).*$">
 <cfset variables.instance.duplicateTransients=false>
@@ -148,7 +147,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 <cfset variables.instance.readOnlyDbPassword="" />
 <cfset variables.instance.MYSQLEngine="InnoDB" />
 <cfset variables.instance.autoDiscoverPlugins=false />
-<cfset variables.instance.trackSessionInNewThread=1 />
+<cfset variables.instance.trackSessionInNewThread=true />
 <cfset variables.instance.cfStaticJavaLoaderScope="application">
 <cfset variables.instance.URLTitleDelim="-">
 <cfset variables.instance.BCryptLogRounds=10>
@@ -188,7 +187,9 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 <cfset variables.instance.FMAllowedExtensions='7z,aiff,asf,avi,bmp,csv,doc,docx,eps,fla,flv,gif,gz,gzip,ics,jpeg,jpg,json,key,keynote,mid,mov,mp3,mp4,mpc,mpeg,mpg,numbers,ods,odt,pages,pdf,png,ppt,pptx,ppsx,pxd,qt,ram,rar,rm,rmi,rmvb,rtf,sdc,sitd,swf,sxc,sxw,svg,tar,tgz,tif,tiff,txt,vsd,wav,wma,wmv,xls,xlsx,xml,zip,m4v,less'>
 <cfset variables.instance.FMPublicAllowedExtensions='7z,aiff,asf,avi,bmp,csv,doc,docx,eps,fla,flv,gif,gz,gzip,ics,jpeg,jpg,json,key,keynote,mid,mov,mp3,mp4,mpc,mpeg,mpg,numbers,ods,odt,pages,pdf,png,ppt,pptx,ppsx,pxd,qt,ram,rar,rm,rmi,rmvb,rtf,sdc,sitd,swf,sxc,sxw,svg,tar,tgz,tif,tiff,txt,vsd,wav,wma,wmv,xls,xlsx,xml,zip,m4v,less'>
 <cfset variables.instance.adminDir="/admin"/>
-<cfset variables.instance.allowedIndexFiles="index.cfm,index.json,index.html,index.amp"/>
+<cfset variables.instance.allowedIndexFiles="index.cfm,index.json,index.html"/>
+<cfset variables.instance.HSTSMaxAge=1200/>
+<cfset variables.instance.siteDir=""/>
 
 <cffunction name="OnMissingMethod" output="false" hint="Handles missing method exceptions.">
 <cfargument name="MissingMethodName" type="string" required="true" hint="The name of the missing method." />
@@ -240,6 +241,12 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 			</cfif>
 		</cfif>
 	</cfloop>
+
+	<cfif directoryExists(expandPath('/muraWRM/sites/default'))>
+		<cfset variables.instance.siteDir='sites'>
+	<cfelse>
+		<cfset variables.instance.siteDir=''>
+	</cfif>
 
 	<cfset setWebRoot(arguments.config.webroot)/>
 	<cfset setContext(arguments.config.context)/>
@@ -518,7 +525,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 </cffunction>
 
 <cffunction name="setAdminSSL" output="false">
-	<cfargument name="AdminSSL" type="Numeric" />
+	<cfargument name="AdminSSL" />
 	<cfset variables.instance.adminSSL = arguments.AdminSSL />
 	<cfreturn this>
 </cffunction>
@@ -528,7 +535,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 </cffunction>
 
 <cffunction name="setLogEvents" output="false">
-	<cfargument name="logEvents" type="Numeric" />
+	<cfargument name="logEvents"/>
 	<cfset variables.instance.logEvents = arguments.logEvents />
 	<cfreturn this>
 </cffunction>
@@ -652,7 +659,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 		<cfif len(ap)>
 			<cfset variables.instance.fileDir = variables.instance.webroot & replace(ap,"/",variables.instance.filedelim,"all") />
 		<cfelse>
-			<cfset variables.instance.fileDir = variables.instance.webroot  />
+			<cfset variables.instance.fileDir = getSiteDir()  />
 		</cfif>
 	</cfif>
 
@@ -679,7 +686,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 		<cfif len(ap)>
 			<cfset variables.instance.assetDir = variables.instance.webroot & replace(ap,"/",variables.instance.filedelim,"all") />
 		<cfelse>
-			<cfset variables.instance.assetDir = variables.instance.webroot  />
+			<cfset variables.instance.assetDir = getSiteDir()  />
 		</cfif>
 	</cfif>
 
@@ -1799,14 +1806,18 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 		</cfif>
 		<cfdirectory name="rs" directory="#expandPath(arguments.dir)#" action="list" filter="">
 		<cfloop query="rs">
-			<cfif rs.type eq 'dir'>
-				<cfif listFindNoCase('handlers,eventhandlers,event_handlers',rs.name)>
-					<cfset registerHandlerDir(dir=listAppend(arguments.dir,rs.name,'/'),package=arguments.package & "." & rs.name,siteid=arguments.siteid,moduleid=arguments.moduleid)>
-				<cfelseif not listFindNoCase('archived,archive',rs.name)>
-					<cfset registerBeanDir(dir=listAppend(arguments.dir,rs.name,'/'),package=arguments.package & "." & rs.name,siteid=arguments.siteid,moduleid=arguments.moduleid)>
-				</cfif>
-			<cfelseif listLast(rs.name,'.') eq 'cfc'>
+			<!--- Registers handlers last so that that all entities defined will be available --->
+			<cfif rs.type eq 'dir' and not listFindNoCase('archived,archive,handlers,eventhandlers,event_handlers',rs.name)>
+				<cfset registerBeanDir(dir=listAppend(arguments.dir,rs.name,'/'),package=arguments.package & "." & rs.name,siteid=arguments.siteid,moduleid=arguments.moduleid)>
+			<cfelseif rs.type neq 'dir' and listLast(rs.name,'.') eq 'cfc'>
 				<cfset registerBean(componentPath="#package#.#listFirst(rs.name,'.')#",siteid=arguments.siteid,moduleid=arguments.moduleid)>
+			</cfif>
+		</cfloop>
+
+		<!--- Registers handlers last so that that all entities defined will be available --->
+		<cfloop query="rs">
+			<cfif rs.type eq 'dir' and listFindNoCase('handlers,eventhandlers,event_handlers',rs.name)>
+				<cfset registerHandlerDir(dir=listAppend(arguments.dir,rs.name,'/'),package=arguments.package & "." & rs.name,siteid=arguments.siteid,moduleid=arguments.moduleid)>
 			</cfif>
 		</cfloop>
 	</cfif>
@@ -1830,7 +1841,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 	<cfset var levelObj=metadata>
 	<cfset var entity="">
 	<cfloop condition="structKeyExists(levelObj,'extends')">
-		<cfif not isPublicFound && isdefined('levelObj.public') and isBoolean(levelObj.public) and levelObj.public>
+		<cfif not isPublicFound and (isdefined('levelObj.public') and isBoolean(levelObj.public) and levelObj.public or isdefined('levelObj.access') && levelObj.access eq 'remote')>
 			<cfset isPublic=true>
 			<cfset isPublicFound=true>
 		</cfif>
@@ -1906,6 +1917,34 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 		</cfloop>
 	</cfif>
 	<cfreturn this>
+</cffunction>
+
+<cffunction name="getSiteDir" output="false">
+	<cfreturn expandPath(getSiteIncludePath())>
+</cffunction>
+
+<cffunction name="getSiteIncludePath" output="false">
+	<cfif len(variables.instance.siteDir)>
+		<cfreturn '/muraWRM/#variables.instance.siteDir#'>
+	<cfelse>
+		<cfreturn'/muraWRM'>
+	</cfif>
+</cffunction>
+
+<cffunction name="getSiteMap" output="false">
+	<cfif len(variables.instance.siteDir)>
+		<cfreturn 'muraWRM.#variables.instance.siteDir#'>
+	<cfelse>
+		<cfreturn'muraWRM'>
+	</cfif>
+</cffunction>
+
+<cffunction name="getSiteAssetPath" output="false">
+	<cfif len(variables.instance.siteDir)>
+		<cfreturn "/#variables.instance.siteDir#">
+	<cfelse>
+		<cfreturn "">
+	</cfif>
 </cffunction>
 
 </cfcomponent>

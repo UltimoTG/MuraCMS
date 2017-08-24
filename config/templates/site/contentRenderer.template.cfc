@@ -72,6 +72,7 @@
 
 	<cfscript>
 		this.layoutmanager=true;
+		this.validateCSRFTokens=false;
 
 		//this.navOffSet=0;
 		//this.navDepthLimit=1000;
@@ -158,6 +159,7 @@
 		*/
 
 		//comments/index.cfm
+		this.allowPublicComments=true;
 		this.commentsWrapperClass="";
 		this.commentSortContainerClass="";
 		this.commentSortWrapperClass="";

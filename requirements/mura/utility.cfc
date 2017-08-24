@@ -68,7 +68,7 @@
 
 <cffunction name="getBCrypt" output="false">
 	<cfif not isDefined('variables.bCrypt')>
-		<cfif variables.configBean.getValue(property='legacyJavaLoader',defaultValue=true)>
+		<cfif variables.configBean.getValue(property='legacyJavaLoader',defaultValue=false)>
 			<cfset variables.bCrypt=getBean("javaLoader").create("BCrypt")>
 		<cfelse>
 			<cfset variables.bCrypt=createObject("java","BCrypt")>
@@ -188,14 +188,31 @@
 		<cfset variables.fileWriter.createDir(directory="#variables.configBean.getAssetDir()##variables.configBean.getFileDelim()##arguments.siteid##variables.configBean.getFileDelim()#assets")>
 	</cfif>
 
-	<cfif variables.configBean.getSiteIDInURLS() and not fileExists("#webroot#/#arguments.siteid#/index.cfm")>
-		<cfset variables.fileWriter.copyFile(source="#webroot#/config/templates/site/index.template.cfm", destination="#webroot#/#arguments.siteid#/index.cfm")>
+	<cfif variables.configBean.getSiteIDInURLS() and not fileExists("#variables.configBean.getSiteDir()#/#arguments.siteid#/index.cfm")>
+		<cfset variables.fileWriter.copyFile(source="#webroot#/config/templates/site/index.template.cfm", destination="#variables.configBean.getSiteDir()#/#arguments.siteid#/index.cfm")>
 	</cfif>
 
-	<cfset var basedir="#webroot#/#arguments.siteid#/includes">
+	<!--- Double checking that it sees the new property on autoupdated instances--->
+	<cfif len(variables.configBean.getSiteDir())>
+		<cfif directoryExists('#variables.configBean.getSiteDir()#/#arguments.siteid#/includes')>
+			<cfset basedir="#variables.configBean.getSiteDir()#/#arguments.siteid#/includes">
+		<cfelse>
+			<cfset basedir="#variables.configBean.getSiteDir()#/#arguments.siteid#">
+		</cfif>
 
-	<cfif not directoryExists(basedir) and arguments.displaypoolid neq arguments.siteid>
-		<cfset basedir="#webroot#/#arguments.displaypoolid#/includes">
+		<cfif not directoryExists(basedir) and arguments.displaypoolid neq arguments.siteid>
+			<cfif directoryExists('#variables.configBean.getSiteDir()#/#arguments.displaypoolid#/includes')>
+				<cfset basedir="#variables.configBean.getSiteDir()#/#arguments.displaypoolid#/includes">
+			<cfelse>
+				<cfset basedir="#variables.configBean.getSiteDir()#/#arguments.displaypoolid#">
+			</cfif>
+		</cfif>
+	<cfelse>
+		<cfset var basedir="#webroot#/#arguments.siteid#/includes">
+
+		<cfif not directoryExists(basedir) and arguments.displaypoolid neq arguments.siteid>
+			<cfset basedir="#webroot#/#arguments.displaypoolid#/includes">
+		</cfif>
 	</cfif>
 
 	<cfif not directoryExists(basedir)>
@@ -206,7 +223,7 @@
 		<cfset variables.fileWriter.copyFile(source="#webroot#/config/templates/site/contentRenderer.template.cfc", destination="#basedir#/contentRenderer.cfc")>
 	</cfif>
 
-	<cfif not fileExists("#basedir#/Application.cfc")>
+	<cfif listLast(variables.configBean.getSiteDir(),'/\') neq 'sites' and  not fileExists("#basedir#/Application.cfc")>
 		<cfset variables.fileWriter.copyFile(source="#webroot#/config/templates/site/application.template.cfc", destination="#basedir#/Application.cfc")>
 	</cfif>
 
@@ -931,7 +948,7 @@ Blog: www.codfusion.com--->
 
 			if ( Len(secret) && StructKeyExists(form, 'g-recaptcha-response') && Len(form['g-recaptcha-response']) ) {
 				var reCaptcha = new mura.reCaptcha(secret);
-				var verified = reCaptcha.verifyResponse(response=form['g-recaptcha-response'], remoteid=cgi.remote_addr);
+				var verified = reCaptcha.verifyResponse(response=form['g-recaptcha-response'], remoteid=request.remoteAddr );
 			}
 
 			return verified;
@@ -1096,7 +1113,7 @@ Blog: www.codfusion.com--->
 		<cfset var returnProtocol = listFirst(arguments.href,':') />
 		<cfset var returnDomain = reReplace(arguments.href, "^\w+://([^\/:]+)[\w\W]*$", "\1", "one") />
 
-		<cfif not listfindNoCase(getBean('settingsManager').getAccessControlOriginList(),returnProtocol & "://" & returnDomain) and len(returnDomain)>
+		<cfif not listfindNoCase(getBean('settingsManager').getAccessControlOriginDomainList(),returnDomain) and len(returnDomain)>
 			<cfif len(cgi.http_host)>
 				<cfset arguments.href=replace(arguments.href,returnDomain,listFirst(cgi.http_host,":"))>
 			<cfelse>
@@ -1264,6 +1281,70 @@ Blog: www.codfusion.com--->
 		}
 	}
 
+	function getXMLKeyValue(xmlObj, key, defaultValue=""){
+		if(isdefined('arguments.xmlObj.xmlAttributes.#arguments.key#')){
+			return xmlObj.xmlAttributes[arguments.key];
+		} else if ( isDefined('arguments.xmlObj.#arguments.key#.xmlText')){
+			return arguments.xmlObj[arguments.key].xmlText;
+		} else {
+			return arguments.defaultValue;
+		}
+	}
 </cfscript>
+
+<!--- Stashing some support for tags here until CF10 support is dropped --->
+<cffunction name="setHeader" output="false">
+	<cfargument name="statustext">
+	<cfargument name="statuscode">
+	<cfheader statustext="#arguments.statustext#" statuscode="#arguments.statuscode#">
+</cffunction>
+
+<cffunction name="resetContent" output="false">
+	<cfcontent reset="true">
+</cffunction>
+
+<cffunction name="clearObjectCache" output="false">
+	<cfobjectcache action="clear" />
+</cffunction>
+
+<cffunction name="setRequestTimeout" output="false">
+	<cfargument name="timeout">
+	<cfsetting requestTimeout = "#timeout#">
+</cffunction>
+
+<cffunction name="scheduleTask" output="false">
+	<cfschedule attributeCollection=arguments>
+</cffunction>
+
+<cffunction name="legacyLogout" output="false">
+	<cflogout>
+</cffunction>
+
+<cffunction name="invokeMethod" output="false">
+		<cfargument name="component">
+		<cfargument name="methodName">
+		<cfargument name="args" default="#structNew()#">
+		<cfinvoke component="#arguments.component#" method="#arguments.methodName#" returnVariable="local.returnValue" argumentCollection="#arguments.args#">
+		<cfif isDefined('local.returnValue')>
+			<cfreturn local.returnValue>
+		</cfif>
+</cffunction>
+
+<cffunction name="cfml2wddx" output="false">
+	<cfargument name="value">
+		<cfwddx action="cfml2wddx" input="#arguments.value#" output="local.temp">
+		<cfreturn local.temp>
+</cffunction>
+
+<cffunction name="wddx2cfml" output="false">
+	<cfargument name="value">
+		<cfwddx action="wddx2cfml" input=#arguments.value# output="local.temp">
+		<cfreturn local.temp>
+</cffunction>
+
+<cffunction name="setHTMLHead" output="false">
+	<cfargument name="value">
+		<cfhtmlhead text="#arguments.value#">
+</cffunction>
 
 </cfcomponent>

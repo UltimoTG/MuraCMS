@@ -186,7 +186,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 
 	<cfloop query="rsParams">
 		<cfif listLen(rsParams.field,".") eq 2>
-			<cfset jointable=listFirst(rsParams.field,".") >
+			<cfset jointable=REReplace(listFirst(rsParams.field,"."),"[^0-9A-Za-z_,\- ]","","all") >
 			<cfif not listFindNoCase("tcontent,tcontentstats,tfiles,tparent,tcontentcategoryassign,tcontenttags,tcontentcategories",jointable) and not listFind(jointables,jointable)>
 				<cfset jointables=listAppend(jointables,jointable)>
 			</cfif>
@@ -417,20 +417,21 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 											<cfset started=true>
 
 											<cfif listLen(param.getField(),".") gt 1>
-												<cfif listFind('tcontentcategoryassign,tcontentcategories',listFirst(param.getField(),"."))>
-													tcontent.contenthistid IN (
+												<cfset jointable=listFirst(param.getField(),".")>
+												<cfif listFind('tcontentcategoryassign,tcontentcategories',jointable)>
+													tcontent.contenthistid <cfif param.getCondition() eq 'not in'>NOT IN <cfelse>IN</cfif> (
 														SELECT DISTINCT contenthistid
 														FROM tcontentcategoryassign #tableModifier#
-														<cfif listFirst(param.getField(),'.') eq 'tcontentcategories'>
+														<cfif jointable eq 'tcontentcategories'>
 															inner join tcontentcategories #tableModifier#
 															ON (tcontentcategoryassign.categoryID=tcontentcategories.categoryID)
 														</cfif>
 														WHERE
 															#param.getFieldStatement()#
+															<cfif param.getCondition() eq 'not in'> IN <cfelse>#param.getCondition()#</cfif>
 															<cfif param.getCriteria() eq 'null'>
-																#param.getCondition()# NULL
+																NULL
 															<cfelse>
-																#param.getCondition()#
 																<cfif isListParam>(</cfif>
 																<cfqueryparam cfsqltype="cf_sql_#param.getDataType()#" value="#param.getCriteria()#" list="#iif(isListParam,de('true'),de('false'))#">
 																<cfif isListParam>)</cfif>
@@ -442,13 +443,13 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 																</cfif>
 															</cfif>
 													)
-												<cfelseif listFirst(param.getField(),".") eq "tcontenttags">
-													tcontent.contenthistid IN (
+												<cfelseif jointable eq "tcontenttags">
+													tcontent.contenthistid <cfif param.getCondition() eq 'not in'>NOT IN <cfelse>IN</cfif> (
 														SELECT DISTINCT contenthistid
 														FROM tcontenttags #tableModifier#
 														WHERE
 															#param.getFieldStatement()#
-
+															<cfif param.getCondition() eq 'not in'> IN <cfelse>#param.getCondition()#</cfif>
 															<cfif param.getCriteria() eq 'null'>
 																#param.getCondition()# NULL
 															<cfelse>
@@ -460,11 +461,10 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 													)
 												<cfelse>
 														#param.getFieldStatement()#
-
+														#param.getCondition()#
 														<cfif param.getCriteria() eq 'null'>
-															#param.getCondition()# NULL
+															 NULL
 														<cfelse>
-															#param.getCondition()#
 															<cfif isListParam>(</cfif>
 															<cfqueryparam cfsqltype="cf_sql_#param.getDataType()#" value="#param.getCriteria()#" list="#iif(isListParam,de('true'),de('false'))#" null="#iif(param.getCriteria() eq 'null',de('true'),de('false'))#">
 															<cfif isListParam>)</cfif>
@@ -506,10 +506,11 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 																	#castfield#
 																</cfif>
 
+																#param.getCondition()#
+
 																<cfif param.getCriteria() eq 'null'>
-																	#param.getCondition()# NULL
+																	NULL
 																<cfelse>
-																	#param.getCondition()#
 																	<cfif isListParam>(</cfif>
 																	<cfqueryparam cfsqltype="cf_sql_#param.getDataType()#" value="#param.getCriteria()#" list="#iif(isListParam,de('true'),de('false'))#">
 																	<cfif isListParam>)</cfif>
@@ -828,21 +829,21 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 							<cfset started=true>
 
 							<cfif listLen(param.getField(),".") gt 1>
-								<cfif listFind('tcontentcategoryassign,tcontentcategories',listFirst(param.getField(),"."))>
-									tcontent.contenthistid IN (
+								<cfset jointable=listFirst(param.getField(),".")>
+								<cfif listFind('tcontentcategoryassign,tcontentcategories',jointable)>
+									tcontent.contenthistid <cfif param.getCondition() eq 'not in'>NOT IN <cfelse>IN</cfif> (
 										SELECT DISTINCT contenthistid
 										FROM tcontentcategoryassign #tableModifier#
-										<cfif listFirst(param.getField(),'.') eq 'tcontentcategories'>
+										<cfif jointable eq 'tcontentcategories'>
 											inner join tcontentcategories #tableModifier#
 											ON (tcontentcategoryassign.categoryID=tcontentcategories.categoryID)
 										</cfif>
 										WHERE
 											#param.getFieldStatement()#
-
+											<cfif param.getCondition() eq 'not in'> IN <cfelse>#param.getCondition()#</cfif>
 											<cfif param.getCriteria() eq 'null'>
-												#param.getCondition()# NULL
+ 												NULL
 											<cfelse>
-												#param.getCondition()#
 												<cfif isListParam>(</cfif>
 												<cfqueryparam cfsqltype="cf_sql_#param.getDataType()#" value="#param.getCriteria()#" list="#iif(isListParam,de('true'),de('false'))#">
 												<cfif isListParam>)</cfif>
@@ -854,17 +855,16 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 												</cfif>
 											</cfif>
 									)
-								<cfelseif listFirst(param.getField(),".") eq "tcontenttags">
-									tcontent.contenthistid IN (
+								<cfelseif jointable eq "tcontenttags">
+									tcontent.contenthistid <cfif param.getCondition() eq 'not in'>NOT IN <cfelse>IN</cfif> (
 										SELECT DISTINCT contenthistid
 										FROM tcontenttags #tableModifier#
 										WHERE
 											#param.getFieldStatement()#
-
+											<cfif param.getCondition() eq 'not in'> IN <cfelse>#param.getCondition()#</cfif>
 											<cfif param.getCriteria() eq 'null'>
-												#param.getCondition()# NULL
+												NULL
 											<cfelse>
-												#param.getCondition()#
 												<cfif isListParam>(</cfif>
 												<cfqueryparam cfsqltype="cf_sql_#param.getDataType()#" value="#param.getCriteria()#" list="#iif(isListParam,de('true'),de('false'))#">
 												<cfif isListParam>)</cfif>
@@ -872,11 +872,10 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 									)
 								<cfelse>
 										#param.getFieldStatement()#
-
+										#param.getCondition()#
 										<cfif param.getCriteria() eq 'null'>
-											#param.getCondition()# NULL
+											 NULL
 										<cfelse>
-											#param.getCondition()#
 											<cfif isListParam>(</cfif>
 											<cfqueryparam cfsqltype="cf_sql_#param.getDataType()#" value="#param.getCriteria()#" list="#iif(isListParam,de('true'),de('false'))#" null="#iif(param.getCriteria() eq 'null',de('true'),de('false'))#">
 											<cfif isListParam>)</cfif>
@@ -918,10 +917,11 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 													#castfield#
 												</cfif>
 
+												#param.getCondition()#
+
 												<cfif param.getCriteria() eq 'null'>
-													#param.getCondition()# NULL
+													NULL
 												<cfelse>
-													#param.getCondition()#
 													<cfif isListParam>(</cfif>
 													<cfqueryparam cfsqltype="cf_sql_#param.getDataType()#" value="#param.getCriteria()#" list="#iif(isListParam,de('true'),de('false'))#">
 													<cfif isListParam>)</cfif>
@@ -1178,39 +1178,39 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 								</cfif>
 								,tcontent.releaseDate desc, tcontent.lastUpdate desc <!--- tie-breaker sort options for articles with the same MXP points/scores. Show the most recent one first. --->
 							<cfelse>
-								#REReplace(arguments.feedBean.getOrderBy(),"[^0-9A-Za-z\._,\- ]","","all")#
+								#REReplace(arguments.feedBean.getOrderBy(),"[^0-9A-Za-z\._,\-%//""'' ]","","all")#
 							</cfif>
 						<cfelse>
 							<cfswitch expression="#arguments.feedBean.getSortBy()#">
 								<cfcase value="menutitle,title,lastupdate,releasedate,orderno,displaystart,displaystop,created,expires,credits,type,subtype">
 									<cfif dbType neq "oracle" or listFindNoCase("orderno,releaseDate,lastUpdate,created,displayStart,displayStop",arguments.feedBean.getSortBy())>
-										tcontent.#arguments.feedBean.getSortBy()# #arguments.feedBean.getSortDirection()#
+										tcontent.#arguments.feedBean.getSortBy()# #REReplace(arguments.feedBean.getSortDirection(),"[^A-Za-z]","","all")#
 									<cfelse>
-										lower(tcontent.#arguments.feedBean.getSortBy()#) #arguments.feedBean.getSortDirection()#
+										lower(tcontent.#arguments.feedBean.getSortBy()#) #REReplace(arguments.feedBean.getSortDirection(),"[^A-Za-z]","","all")#
 									</cfif>
 								</cfcase>
 								<cfcase value="rating">
-									tcontentstats.rating #arguments.feedBean.getSortDirection()#, tcontentstats.totalVotes #arguments.feedBean.getSortDirection()#
+									tcontentstats.rating #REReplace(arguments.feedBean.getSortDirection(),"[^A-Za-z]","","all")#, tcontentstats.totalVotes #REReplace(arguments.feedBean.getSortDirection(),"[^A-Za-z]","","all")#
 								</cfcase>
 								<cfcase value="comments">
-									tcontentstats.comments #arguments.feedBean.getSortDirection()#
+									tcontentstats.comments #REReplace(arguments.feedBean.getSortDirection(),"[^A-Za-z]","","all")#
 								</cfcase>
 								<cfcase value="random">
 									<cfif dbType eq "mysql">
 										rand()
 									<cfelseif dbType eq "postgresql">
 										random()
-							    	<cfelseif dbType eq "mssql">
-							    		newID()
-							    	<cfelseif dbType eq "oracle">
-							    		dbms_random.value
-							    	</cfif>
+						    	<cfelseif dbType eq "mssql">
+						    		newID()
+						    	<cfelseif dbType eq "oracle">
+						    		dbms_random.value
+						    	</cfif>
 								</cfcase>
 								<cfdefaultcase>
 									<cfif mxpRelevanceSort>
-										total_points #REReplace(arguments.feedBean.getSortDirection(),"[^0-9A-Za-z\._,\- ]","","all")# , total_score #REReplace(arguments.feedBean.getSortDirection(),"[^0-9A-Za-z\._,\- ]","","all")#, tcontent.releaseDate #REReplace(arguments.feedBean.getSortDirection(),"[^0-9A-Za-z\._,\- ]","","all")#,tcontent.lastUpdate #REReplace(arguments.feedBean.getSortDirection(),"[^0-9A-Za-z\._,\- ]","","all")#
+										total_points #REReplace(arguments.feedBean.getSortDirection(),"[^A-Za-z]","","all")# , total_score #REReplace(arguments.feedBean.getSortDirection(),"[^A-Za-z]","","all")#, tcontent.releaseDate #REReplace(arguments.feedBean.getSortDirection(),"[^A-Za-z]","","all")#, tcontent.lastUpdate #REReplace(arguments.feedBean.getSortDirection(),"[^A-Za-z]","","all")#
 									<cfelseif isExtendedSort>
-										qExtendedSort.extendedSort #REReplace(arguments.feedBean.getSortDirection(),"[^0-9A-Za-z\._,\- ]","","all")#
+										qExtendedSort.extendedSort #REReplace(arguments.feedBean.getSortDirection(),"[^A-Za-z]","","all")#
 									<cfelse>
 										tcontent.releaseDate desc,tcontent.lastUpdate desc,tcontent.menutitle
 									</cfif>

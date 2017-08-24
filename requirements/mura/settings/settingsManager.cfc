@@ -290,7 +290,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 	<cfset variables.DAO.delete(arguments.siteid) />
 	<cfset setSites() />
 	<cftry>
-	<cfset variables.utility.deleteDir("#variables.configBean.getWebRoot()#/#arguments.siteid#/") />
+	<cfset variables.utility.deleteDir("#variables.configBean.getSiteDir()#/#arguments.siteid#/") />
 	<cfcatch></cfcatch>
 	</cftry>
 	<cftry>
@@ -331,7 +331,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 			<cfabort>
 		</cfif>
 
-		<cfif directoryExists(expandPath("/muraWRM/#bean.getSiteID()#"))>
+		<cfif directoryExists("#variables.configBean.getSiteDir()#/#bean.getSiteID()#")>
 			<cfthrow message="A directory with the same name as the SiteID you entered is already being used.">
 		</cfif>
 
@@ -381,9 +381,9 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 	<cfif bean.getSiteID() eq bean.getDisplayPoolID() and !directoryExists('#variables.configBean.getWebRoot()##fileDelim##bean.getSiteID()##fileDelim#')>
 
 		<cfset variables.utility.copyDir(
-				baseDir="#variables.configBean.getWebRoot()##fileDelim#default#fileDelim#",
-				destDir="#variables.configBean.getWebRoot()##fileDelim##bean.getSiteID()##fileDelim#",
-				excludeList="#variables.configBean.getWebRoot()##fileDelim#default#fileDelim#cache,#variables.configBean.getWebRoot()##fileDelim#default#fileDelim#assets"
+				baseDir="#variables.configBean.getSiteDir()##fileDelim#default#fileDelim#",
+				destDir="#variables.configBean.getSiteDir()##fileDelim##bean.getSiteID()##fileDelim#",
+				excludeList="#variables.configBean.getSiteDir()##fileDelim#default#fileDelim#cache,#variables.configBean.getSiteDir()##fileDelim#default#fileDelim#assets"
 			)>
 	</cfif>
 </cffunction>
@@ -417,6 +417,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 
 	<cfloop query="rs">
 		<cfif structKeyExists(foundSites,'#rs.siteid#')>
+			<cfset builtSites['#rs.siteid#'].getRBFactory()>
 			<cfset builtSites['#rs.siteid#'].registerContentTypeDirs()>
 			<cfset builtSites['#rs.siteid#'].discoverDisplayObjects()>
 			<cfset builtSites['#rs.siteid#'].discoverBeans()>
@@ -726,6 +727,54 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 <cffunction name="remoteReload" output="false">
 		<cfset application.appInitialized=false>
 		<cfset application.broadcastInit=false>
+</cffunction>
+
+<cffunction name="getAccessControlOriginDomainList">
+	<cfscript>
+		if(!isDefined("variables.AccessControlOriginDomainList")){
+			lock name="origindomainlist#application.instanceid#" type="exclusive" timeout="10"{
+				if(!isDefined("variables.AccessControlOriginDomainList")){
+					variables.AccessControlOriginDomainList='';
+
+					var admindomain=variables.configBean.getAdminDomain();
+
+					if(len(admindomain)){
+						variables.AccessControlOriginList=listAppend(variables.AccessControlOriginDomainList,admindomain);
+					}
+
+					var sites=getSites();
+					var originArray=[];
+					var origin='';
+
+					for(var site in sites){
+						originArray=listToArray(sites[site].getAccessControlOriginDomainList());
+						if(arrayLen(originArray)){
+							for(origin in originArray){
+								if(!listFind(variables.AccessControlOriginDomainList,origin)){
+									variables.AccessControlOriginDomainList=listAppend(variables.AccessControlOriginDomainList,origin);
+								}
+							}
+						}
+
+					}
+				}
+			}
+		}
+
+		return variables.AccessControlOriginDomainList;
+
+	</cfscript>
+</cffunction>
+
+<cffunction name="getAccessControlOriginDomainArray" output="false">
+	<cfscript>
+		if(!isDefined("variables.AccessControlOriginDomainArray")){
+			variables.AccessControlOriginDomainArray=listToArray(getAccessControlOriginDomainList());
+		}
+
+		return variables.AccessControlOriginDomainArray;
+
+	</cfscript>
 </cffunction>
 
 <cffunction name="getAccessControlOriginList">

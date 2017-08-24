@@ -392,6 +392,8 @@
 			utility('##frontEndToolsSidebariframe').attr('src',src);
 			MuraInlineEditor.sidebarAction('showconfigurator');
 		}
+
+		return false;
 	}
 
 	var resizeFrontEndToolsSidebar=function(frameHeight){
@@ -1377,6 +1379,7 @@
 									}
 
 									var params=item.data();
+									var objectid='';
 
 									delete params['instanceid'];
 									//delete params['objectname'];
@@ -1392,7 +1395,9 @@
 										item.data('objectname',item.data('object'));
 									}
 
-									objectlist.push(item.data('object') + '~' + item.data('objectname') + '~' + item.data('objectid') + '~' + JSON.stringify(params))
+									objectid=item.data('objectid') || 'NA';
+
+									objectlist.push(item.data('object') + '~' + item.data('objectname') + '~' + objectid + '~' + JSON.stringify(params))
 
 								});
 
@@ -1517,20 +1522,19 @@
 
 								if(resp.success){
 					        	<cfif node.getType() eq 'Variation'>
-					        		if(MuraInlineEditor.requestedURL){
-										location.href=MuraInlineEditor.requestedURL
-									} else {
-					        			location.reload();
-									}
+							        if(MuraInlineEditor.requestedURL){
+												location.href=MuraInlineEditor.requestedURL
+											} else {
+							        	location.reload();
+											}
 					        	<cfelse>
 					        		var resp = eval('(' + data + ')');
 
 					        		if(MuraInlineEditor.requestedURL){
-										location.href=MuraInlineEditor.requestedURL
-									} else {
-										location.href=resp.location;
-									}
-
+												location.href=MuraInlineEditor.requestedURL
+											} else {
+												location.href=resp.location;
+											}
 					        	</cfif>
 								} else {
 
@@ -1549,6 +1553,8 @@
 
 					        },
 					         error: function(data){
+								utility('##adminSave').removeClass('mura-saving');
+								alert("An server error occurred.  Please check js console for more information.");
 					        	console.log(JSON.stringify(data));
 
 					        }
@@ -2103,6 +2109,8 @@
 	window.openFrontEndToolsModal=openFrontEndToolsModal;
 	window.themepath=window.themepath || Mura.themepath;
 	window.muraInlineEditor=window.MuraInlineEditor;
+
+	Mura.initFrontendUI=initFrontendUI;
 
 	<cfif url.contenttype eq 'Variation'>
 		Mura('#mura-edit-var-targetingjs').click(function(e){

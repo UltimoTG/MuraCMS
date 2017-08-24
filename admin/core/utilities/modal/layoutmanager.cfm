@@ -16,24 +16,29 @@
 						<cfset displayObjects=$.siteConfig('displayObjects')>
 						<cfset objectKeys=listSort(structKeylist(displayObjects),'textNoCase')>
 						<cfloop list="#objectKeys#" index="key">
-							<cfif (displayobjects['#key#'].contenttypes eq '*'
-								or listFindNoCase(displayobjects['#key#'].contenttypes,$.content('type'))
-								or listFindNoCase(displayobjects['#key#'].contenttypes,$.content('type') & '/' & $.content('subtype'))
-								or listFindNoCase(displayobjects['#key#'].contenttypes,$.content('subtype'))
-							) and not (
-								 listFindNoCase(displayobjects['#key#'].omitcontenttypes,$.content('type'))
-								or listFindNoCase(displayobjects['#key#'].omitcontenttypes,$.content('type') & '/' & $.content('subtype'))
-								or listFindNoCase(displayobjects['#key#'].omitcontenttypes,$.content('subtype'))
-							)
-							and evaluate(displayobjects['#key#'].condition)>
-								#contentRendererUtility.renderObjectClassOption(
-									object=displayObjects[key].object,
-									objectid='',
-									objectname=displayObjects[key].name,
-									objecticonclass=displayObjects[key].iconclass
-								)#
+							<cftry>
+								<cfif (displayobjects['#key#'].contenttypes eq '*'
+									or listFindNoCase(displayobjects['#key#'].contenttypes,$.content('type'))
+									or listFindNoCase(displayobjects['#key#'].contenttypes,$.content('type') & '/' & $.content('subtype'))
+									or listFindNoCase(displayobjects['#key#'].contenttypes,$.content('subtype'))
+								) and not (
+									 listFindNoCase(displayobjects['#key#'].omitcontenttypes,$.content('type'))
+									or listFindNoCase(displayobjects['#key#'].omitcontenttypes,$.content('type') & '/' & $.content('subtype'))
+									or listFindNoCase(displayobjects['#key#'].omitcontenttypes,$.content('subtype'))
+								)
+								and evaluate(displayobjects['#key#'].condition)>
+									#contentRendererUtility.renderObjectClassOption(
+										object=displayObjects[key].object,
+										objectid='',
+										objectname=displayObjects[key].name,
+										objecticonclass=displayObjects[key].iconclass
+									)#
 
-							</cfif>
+								</cfif>
+								<cfcatch>
+										<cfset writeLog(type="Error", file="exception", text="Error rendering display object as option in sidebar: #serializeJSON(displayObjects[key])#")>
+								</cfcatch>
+							</cftry>
 						</cfloop>
 					</div>
 
@@ -144,7 +149,7 @@
 </cfif>
 </div>
 <script>
-mura.ready(function(){
+Mura.ready(function(){
 	<cfif $.content('type') eq 'Variation'>
 	if(!Mura('.mxp-editable').length){
 		Mura('##adminQuickEdit').remove();
@@ -180,9 +185,9 @@ mura.ready(function(){
 	});
 
 	//Mura('.mura-region.mura-editable').attr('style','clear:both;');
-	mura.rb.saveasdraft='#esapiEncode('javascript',application.rbFactory.getKeyValue(session.rb,"sitemanager.content.saveasdraft"))#';
-	mura.adminpath='#variables.$.globalConfig("adminPath")#';
-	mura.loader().loadjs('#variables.$.globalConfig("adminpath")#/assets/js/layoutmanager.js');
+	Mura.rb.saveasdraft='#esapiEncode('javascript',application.rbFactory.getKeyValue(session.rb,"sitemanager.content.saveasdraft"))#';
+	Mura.adminpath='#variables.$.globalConfig("adminPath")#';
+	Mura.loader().loadjs('#variables.$.globalConfig("adminpath")#/assets/js/layoutmanager.js');
 });
 </script>
 </cfoutput>

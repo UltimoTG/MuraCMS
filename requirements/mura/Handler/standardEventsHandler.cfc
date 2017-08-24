@@ -507,13 +507,15 @@
 			<cfif fileExists(expandPath("/#application.configBean.getWebRootMap()#/#arguments.event.getValue('siteid')#/includes/loginHandler.cfc"))>
 				<cfset createObject("component","#application.configBean.getWebRootMap()#.#arguments.event.getValue('siteid')#.includes.loginHandler").init().handleLogin(arguments.event.getAllValues())>
 			<cfelse>
-				<cfset var loginManager=arguments.$.getBean('loginManager')>
-				<cfif isBoolean(arguments.$.event('attemptChallenge')) and arguments.$.event('attemptChallenge')>
-					<cfif loginManager.handleChallengeAttempt(arguments.$)>
-						<cfset loginManager.completedChallenge(arguments.$)>
+				<cfif not arguments.$.getContentRenderer().validateCSRFTokens or arguments.$.validateCSRFTokens(context='login')>
+					<cfset var loginManager=arguments.$.getBean('loginManager')>
+					<cfif isBoolean(arguments.$.event('attemptChallenge')) and arguments.$.event('attemptChallenge')>
+						<cfif loginManager.handleChallengeAttempt(arguments.$)>
+							<cfset loginManager.completedChallenge(arguments.$)>
+						</cfif>
+					<cfelseif isDefined('form.username') and isDefined('form.password')>
+						<cfset loginManager.login(arguments.$.event().getAllValues(),'')>
 					</cfif>
-				<cfelseif isDefined('form.username') and isDefined('form.password')>
-					<cfset loginManager.login(arguments.$.event().getAllValues(),'')>
 				</cfif>
 			</cfif>
 		</cfcase>
@@ -536,28 +538,33 @@
 				<cfset structDelete(eventStruct,'type')>
 				<cfset structDelete(eventStruct,'groupID')>
 				<cfset eventStruct.userid=sessionData.mura.userID>
-
-				<cfset arguments.event.setValue('passedProtect', arguments.$.getBean('utility').isHuman(arguments.event)) />
-
 				<cfset arguments.event.setValue("userID",sessionData.mura.userID)>
-				<cfif isDefined('request.addressAction')>
-					<cfif arguments.event.getValue('addressAction') eq "create">
-						<cfset application.userManager.createAddress(eventStruct)>
-					<cfelseif arguments.event.getValue('addressAction') eq "update">
-						<cfset application.userManager.updateAddress(eventStruct)>
-					<cfelseif arguments.event.getValue('addressAction') eq "delete">
-						<cfset application.userManager.deleteAddress(arguments.event.getValue('addressID'))>
-					</cfif>
-					<!--- reset the form --->
-					<cfset arguments.event.setValue('addressID','')>
-					<cfset arguments.event.setValue('addressAction','')>
-				<cfelse>
-					<cfset arguments.event.setValue('userBean',application.userManager.update( getBean("user").loadBy(userID=arguments.event.getValue("userID")).set(eventStruct).getAllValues() , iif(event.valueExists('groupID'),de('true'),de('false')),true,arguments.event.getValue('siteID'))) />
-					<cfif structIsEmpty(arguments.event.getValue('userBean').getErrors())>
-						<cfset application.loginManager.loginByUserID(eventStruct)>
-					</cfif>
-				</cfif>
 
+				<cfif not arguments.$.getContentRenderer().validateCSRFTokens or arguments.$.validateCSRFTokens(context='editprofile')>
+					<cfset arguments.event.setValue('passedProtect', arguments.$.getBean('utility').isHuman(arguments.event)) />
+					<cfif isDefined('request.addressAction')>
+						<cfif arguments.event.getValue('addressAction') eq "create">
+							<cfset application.userManager.createAddress(eventStruct)>
+						<cfelseif arguments.event.getValue('addressAction') eq "update">
+							<cfset application.userManager.updateAddress(eventStruct)>
+						<cfelseif arguments.event.getValue('addressAction') eq "delete">
+							<cfset application.userManager.deleteAddress(arguments.event.getValue('addressID'))>
+						</cfif>
+						<!--- reset the form --->
+						<cfset arguments.event.setValue('addressID','')>
+						<cfset arguments.event.setValue('addressAction','')>
+					<cfelse>
+						<cfset arguments.event.setValue('userBean',application.userManager.update( getBean("user").loadBy(userID=arguments.event.getValue("userID")).set(eventStruct).getAllValues() , iif(event.valueExists('groupID'),de('true'),de('false')),true,arguments.event.getValue('siteID'))) />
+						<cfif structIsEmpty(arguments.event.getValue('userBean').getErrors())>
+							<cfset application.loginManager.loginByUserID(eventStruct)>
+						</cfif>
+					</cfif>
+				<cfelse>
+					<cfset var userBean=arguments.$.getBean('userBean').loadBy(userid=sessionData.mura.userID).set(eventStruct)>
+					<cfset userBean.validate()>
+					<cfset userBean.getErrors().csfr='Your request contained invalid tokens'>
+					<cfset arguments.event.setValue('userBean',userBean)>
+				</cfif>
 			</cfif>
 		</cfcase>
 
@@ -570,22 +577,30 @@
 				<cfset structDelete(eventStruct,'groupID')>
 				<cfset eventStruct.userid=''>
 
-				<cfset arguments.event.setValue('passedProtect', arguments.$.getBean('utility').isHuman(arguments.event)) />
-
-				<cfset arguments.event.setValue('userBean',  getBean("user").loadBy(userID=arguments.event.getValue("userID")).set(eventStruct).save() ) />
-				<cfif structIsEmpty(arguments.event.getValue('userBean').getErrors()) and not arguments.event.valueExists('passwordNoCache')>
-					<cfset application.userManager.sendLoginByUser(arguments.event.getValue('userBean'),arguments.event.getValue('siteid'),arguments.event.getValue('contentRenderer').getCurrentURL(),true) />
-				<cfelseif structIsEmpty(arguments.event.getValue('userBean').getErrors()) and arguments.event.valueExists('passwordNoCache') and arguments.event.getValue('userBean').getInactive() eq 0>
-					<cfset arguments.event.setValue('userID',arguments.event.getValue('userBean').getUserID()) />
-					<cfset application.loginManager.loginByUserID(eventStruct)>
+				<cfif not arguments.$.getContentRenderer().validateCSRFTokens or arguments.$.validateCSRFTokens(context='editprofile')>
+					<cfset arguments.event.setValue('passedProtect', arguments.$.getBean('utility').isHuman(arguments.event)) />
+					<cfset arguments.event.setValue('userBean',  getBean("user").loadBy(userID=arguments.event.getValue("userID")).set(eventStruct).save() ) />
+					<cfif structIsEmpty(arguments.event.getValue('userBean').getErrors()) and not arguments.event.valueExists('passwordNoCache')>
+						<cfset application.userManager.sendLoginByUser(arguments.event.getValue('userBean'),arguments.event.getValue('siteid'),arguments.event.getValue('contentRenderer').getCurrentURL(),true) />
+					<cfelseif structIsEmpty(arguments.event.getValue('userBean').getErrors()) and arguments.event.valueExists('passwordNoCache') and arguments.event.getValue('userBean').getInactive() eq 0>
+						<cfset arguments.event.setValue('userID',arguments.event.getValue('userBean').getUserID()) />
+						<cfset application.loginManager.loginByUserID(eventStruct)>
+					</cfif>
+				<cfelse>
+					<cfset var userBean=arguments.$.getBean('userBean').set(eventStruct)>
+					<cfset userBean.validate()>
+					<cfset userBean.getErrors().csfr='Your request contained invalid tokens'>
+					<cfset arguments.event.setValue('userBean',userBean)>
 				</cfif>
 			</cfif>
 		</cfcase>
 
+		<!---
 		<cfcase value="contactsend">
 			<cfparam name="request.company" default="">
 			<cfset getBean("mailer").send(arguments.event.getAllValues(),arguments.event.getValue('sendTo'),'#iif(arguments.event.getValue('fname') eq '' and arguments.event.getValue('lname') eq '',de('#arguments.event.getValue('company')#'),de('#arguments.event.getValue('fname')# #arguments.event.getValue('lname')#'))#',arguments.event.getValue('subject'),arguments.event.getValue('siteID'),arguments.event.getValue('email'))>
 		</cfcase>
+		--->
 
 		<cfcase value="subscribe">
 			<cfset arguments.event.setValue('passedProtect', arguments.$.getBean('utility').isHuman(arguments.event)) />
@@ -852,8 +867,10 @@
 				nocache=$.event('nocache'),
 				assetpath=$.siteConfig().getResourcePath(complete=1) & $.siteConfig().getAssetPath(),
 				requirementspath=$.siteConfig().getRequirementsPath(complete=1),
-				adminpath=$.globalConfig('adminpath'),
+				adminpath=$.siteConfig().getAdminPath(complete=1),
 				themepath=$.siteConfig().getResourcePath(complete=1) & $.siteConfig().getThemeAssetPath(),
+				pluginspath=$.siteConfig().getPluginsPath(complete=1),
+				rootpath=$.siteConfig().getWebPath(complete=1),
 				rb=lcase(listFirst($.siteConfig('JavaLocale'),"_")),
 				reCAPTCHALanguage=$.siteConfig('reCAPTCHALanguage'),
 				preloaderMarkup=esapiEncode('javascript',renderer.preloaderMarkup),

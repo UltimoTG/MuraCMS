@@ -573,7 +573,7 @@ to your own modified versions of Mura CMS.
 									<label class="radio inline"><input type="radio" name="extranet" value="1" <cfif rc.siteBean.getextranet()  eq 1> checked</cfif>>On</label>
 					</div>
 					<div class="mura-control-group">
-							<label>Content Collections</label>
+							<label>Collections Manager</label>
 									<label class="radio inline"><input type="radio" name="hasFeedManager" value="0" <cfif rc.siteBean.getHasFeedManager() neq 1> checked</cfif>>Off</label>
 									<label class="radio inline"><input type="radio" name="hasFeedManager" value="1" <cfif rc.siteBean.getHasFeedManager()  eq 1> checked</cfif>>On</label>
 						</div>
@@ -1142,9 +1142,12 @@ to your own modified versions of Mura CMS.
 								<input id="bundleImportUsersMode" name="bundleImportUsersMode" value="all" type="checkbox"  onchange="if(this.checked){jQuery('##userNotice').show();}else{jQuery('##userNotice').hide();}">
 								Site Members &amp; Administrative Users</label>
 							</span>
+
+							<cfif application.settingsManager.getSite(session.siteid).getemailbroadcaster()>
 								<label class="checkbox" for="bundleImportMailingListMembersMode">
 								<input id="bundleImportMailingListMembersMode" name="bundleImportMailingListMembersMode" value="all" type="checkbox">
 								Mailing Lists Members</label>
+							</cfif>
 								<label class="checkbox" for="bundleImportFormDataMode">
 								<input id="bundleImportFormDataMode" name="bundleImportFormDataMode" value="all" type="checkbox">
 								Form Response Data</label>

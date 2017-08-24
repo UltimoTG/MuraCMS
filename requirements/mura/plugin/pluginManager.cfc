@@ -2418,7 +2418,7 @@ select * from tplugins order by #arguments.orderby#
 <cfargument name="moduleid" required="false" default="#request.muraMostRecentPluginModuleID#" />
 <cfset var sessionData=getSession()>
 <cfif not (isDefined('sessionData.siteid') and isDefined('sessionData.siteArray'))>
-	<cflocation url="#variables.configBean.getContext##variables.configBean.getAdminDir()#/" addtoken="false">
+	<cflocation url="#variables.configBean.getContext()##variables.configBean.getAdminDir()#/" addtoken="false">
 </cfif>
 
 <cfset var rc=structNew()>
@@ -2680,8 +2680,8 @@ select * from rs order by name
 </cffunction>
 
 <cffunction name="deployDirectory" output="false">
-	<cfargument name="siteID" hint="List of siteIDs to assign the plugin. If not defined will defiend to existing assignment.">
-	<cfargument name="directory" hint="Complete path to external plugin directory if external, otherwise the name og the directory in /plugins">
+	<cfargument name="siteID" hint="List of siteIDs to assign the plugin. If not defined, will default to existing assignment.">
+	<cfargument name="directory" hint="Complete path to external plugin directory if external, otherwise the name of the directory in /plugins">
 	<cfargument name="useDefaultSettings" required="true" default="true">
 	<cfargument name="autoDeploy" required="true" default="true">
 

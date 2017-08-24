@@ -233,7 +233,9 @@
 				switch( fieldtype ) {
 					case "textfield":
 					case "textarea":
-						field.value = self.data[field.name];
+						if(self.data[field.name]){
+							field.value = self.data[field.name];
+						}
 					 break;
 					case "checkbox":
 
@@ -456,24 +458,40 @@
 						data.siteid=data.siteid || Mura.siteid;
 						data.fields=self.getPageFieldList();
 
-		                Mura.post(
-	                        Mura.apiEndpoint + '?method=processAsyncObject',
-	                        data)
-	                        .then(function(resp){
-	                            if(typeof resp.data.errors == 'object' && !Mura.isEmptyObject(resp.data.errors)){
-									self.showErrors( resp.data.errors );
-	                            } else if(typeof resp.data.redirect != 'undefined') {
-									if(resp.data.redirect && resp.data.redirect != location.href){
-										location.href=resp.data.redirect;
-									} else {
-										location.reload(true);
-									}
-								} else {
-									self.currentpage = mura(button).data('page');
-	                                self.renderForm();
-	                            }
-	                        }
-							);
+						Mura.ajax({
+			                type: 'post',
+			                url: Mura.apiEndpoint +
+			                    '?method=generateCSRFTokens',
+			                data: {
+			                    siteid: data.siteid,
+			                    context: data.formid
+			                },
+			                success: function(resp) {
+								data['csrf_token_expires']=resp.data['csrf_token_expires'];
+								data['csrf_token']=resp.data['csrf_token'];
+
+								Mura.post(
+			                        Mura.apiEndpoint + '?method=processAsyncObject',
+			                        data)
+			                        .then(function(resp){
+			                            if(typeof resp.data.errors == 'object' && !Mura.isEmptyObject(resp.data.errors)){
+											self.showErrors( resp.data.errors );
+			                            } else if(typeof resp.data.redirect != 'undefined') {
+											if(resp.data.redirect && resp.data.redirect != location.href){
+												location.href=resp.data.redirect;
+											} else {
+												location.reload(true);
+											}
+										} else {
+											self.currentpage = mura(button).data('page');
+			                                self.renderForm();
+			                            }
+			                        }
+								);
+							}
+						});
+
+
 					}
 
 					/*
@@ -755,6 +773,9 @@
 					.find('form')
 					.trigger('formSubmit');
 
+
+				Mura.trackEvent({category:'Form',action:'Submit',label:self.context.name,objectid:self.context.objectid})
+
 				if(self.ormform) {
 					//console.log('a!');
 					Mura.getEntity(self.entity)
@@ -796,6 +817,11 @@
 						data.contenthistid=Mura.contenthistid || '';
 						delete data.filename;
 
+						var tokenArgs={
+							siteid: data.siteid,
+							context: data.formid
+						}
+
 					} else {
 						var rawdata=Mura.deepExtend({},self.context,self.data);
 						rawdata.saveform=true;
@@ -803,6 +829,12 @@
 						rawdata.siteid=rawdata.siteid || Mura.siteid;
 						rawdata.contentid=Mura.contentid || '';
 						rawdata.contenthistid=Mura.contenthistid || '';
+
+						var tokenArgs={
+							siteid: rawdata.siteid,
+							context: rawdata.formid
+						}
+
 						delete rawdata.filename;
 
 						var data=new FormData();
@@ -818,23 +850,41 @@
 						}
 					}
 
-	                Mura.post(
-	                        Mura.apiEndpoint + '?method=processAsyncObject',
-	                        data)
-	                        .then(function(resp){
-	                            if(typeof resp.data.errors == 'object' && !Mura.isEmptyObject(resp.data.errors )){
-									self.showErrors( resp.data.errors );
-								} else if(typeof resp.data.redirect != 'undefined'){
-									if(resp.data.redirect && resp.data.redirect != location.href){
-										location.href=resp.data.redirect;
-									} else {
-										location.reload(true);
-									}
-	                            } else {
-									mura(self.context.formEl).html( Mura.templates['success'](resp.data) );
-								}
-	                        });
+					Mura.ajax({
+						type: 'post',
+						url: Mura.apiEndpoint +
+							'?method=generateCSRFTokens',
+						data: tokenArgs,
+						success: function(resp) {
 
+							if(typeof FormData == 'undefined'){
+								data['csrf_token_expires']=resp.data['csrf_token_expires'];
+								data['csrf_token']=resp.data['csrf_token'];
+							} else {
+								data.append('csrf_token_expires',resp.data['csrf_token_expires']);
+								data.append('csrf_token',resp.data['csrf_token']);
+							}
+
+							Mura.post(
+							   Mura.apiEndpoint + '?method=processAsyncObject',
+							   data)
+							   .then(function(resp){
+								   if(typeof resp.data.errors == 'object' && !Mura.isEmptyObject(resp.data.errors )){
+									   self.showErrors( resp.data.errors );
+										 self.trigger('afterErrorRender');
+								   } else if(typeof resp.data.redirect != 'undefined'){
+									   if(resp.data.redirect && resp.data.redirect != location.href){
+										   location.href=resp.data.redirect;
+									   } else {
+										   location.reload(true);
+									   }
+								   } else {
+									   mura(self.context.formEl).html( Mura.templates['success'](resp.data) );
+										 self.trigger('afterResponseRender');
+								   }
+							  });
+						}
+					});
 				}
 
 			},
@@ -844,7 +894,7 @@
 				var frm=mura(this.context.formEl);
 				var frmErrors=frm.find(".error-container-" + self.context.objectid);
 
-				frm.find('.mura-response-error').remove();
+				mura(this.context.formEl).find('.mura-response-error').remove();
 
 				console.log(errors);
 
@@ -1320,7 +1370,7 @@
 				Mura.Handlebars.registerHelper('commonInputAttributes',function() {
 					//id, class, title, size
 					var escapeExpression=Mura.Handlebars.escapeExpression;
-					
+
 					if(typeof this.fieldtype != 'undefined' && this.fieldtype.fieldtype=='file'){
 						var returnString='name="' + escapeExpression(this.name) + '_attachment"';
 					} else {

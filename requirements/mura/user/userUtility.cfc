@@ -779,14 +779,13 @@ Thanks for using #contactName#</cfoutput>
 <cfargument name="$">
 	<cfset var rs="">
 	<cfif not arguments.$.currentUser().isLoggedIn() and len(arguments.$.event('returnID')) and len(arguments.$.event('returnUserID'))>
-		<cfset var redirect=arguments.$.getBean('userRedirect').loadBy(redirectid=arguments.$.event('returnID'))>
+		<cfset var redirect=getBean('userRedirect').loadBy(redirectid=arguments.$.event('returnID'))>
 		<cfif redirect.exists()
 			and redirect.getCreated() gte dateAdd("d",-1,now())
 			and $.event('returnUserID') eq redirect.getUserID()>
 			<cfset var user=redirect.getUser()>
 			<cfif user.exists()>
 				<cfset user.login()>
-				<cfset redirect.delete()>
 			</cfif>
 			<cfset structDelete(session,"siteArray")>
 		</cfif>
