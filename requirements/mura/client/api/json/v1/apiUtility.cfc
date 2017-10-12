@@ -1618,6 +1618,8 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 			} else {
 				if(len($.event('contenthistid'))){
 					var entity=$.getBean('content').loadBy(contenthistid=$.event('contenthistid'));
+				} else if(len($.event('contentid'))){
+					var entity=$.getBean('content').loadBy(contentid=$.event('contentid'));
 				} else {
 					var entity=$.getBean('content').loadBy(contentid=arguments.id);
 				}
@@ -2023,6 +2025,14 @@ component extends="mura.cfobject" hint="This provides JSON/REST API functionalit
 									} else if(find('*',criteria)){
 										condition="like";
 										criteria=replace(criteria,'*','%','all');
+									}
+
+									if(propname=='id'){
+										if(entity.getEntityName()=='content'){
+											propname='contentid';
+										} else {
+											propname=entity.getPrimaryKey();
+										}
 									}
 
 									feed.addParam(column=propName,criteria=criteria,condition=condition,relationship=relationship);
