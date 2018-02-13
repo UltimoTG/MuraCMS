@@ -51,10 +51,12 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 <cfargument name="settingsManager" type="any" required="yes"/>
 <cfargument name="contentIntervalManager" type="any" required="yes"/>
 <cfargument name="permUtility" type="any" required="yes"/>
+<cfargument name="utility" type="any" required="yes"/>
 		<cfset variables.configBean=arguments.configBean />
 		<cfset variables.settingsManager=arguments.settingsManager />
 		<cfset variables.contentIntervalManager=arguments.contentIntervalManager>
 		<cfset variables.permUtility=arguments.permUtility>
+		<cfset variables.utility=arguments.utility>
 		<cfset variables.classExtensionManager=variables.configBean.getClassExtensionManager()>
 <cfreturn this >
 </cffunction>
@@ -388,8 +390,10 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 			</cfif>
 
 			<cfif not isdate(nowAdjusted)>
-				<cfset nowAdjusted=createDateTime(year(arguments.today),month(arguments.today),day(arguments.today),hour(arguments.today),int((minute(arguments.today)/5)*5),0)>
+					<cfset nowAdjusted=arguments.today>
 			</cfif>
+
+			<cfset nowAdjusted=variables.utility.datetimeToTimespanInterval(nowAdjusted,createTimespan(0,0,5,0))>
 
 			<cfif arguments.aggregation >
 				<cfset doKids =true />
@@ -432,9 +436,10 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 				<cfif not len(altTable)>
 					Left Join tfiles #tableModifier# ON (tcontent.fileID=tfiles.fileID)
 					left Join tcontentstats #tableModifier# on (tcontent.contentid=tcontentstats.contentid
-									    and tcontent.siteid=tcontentstats.siteid)
+						and tcontent.siteid=tcontentstats.siteid)
 					Left Join tcontentfilemetadata #tableModifier# on (tcontent.fileid=tcontentfilemetadata.fileid
-													and tcontent.contenthistid=tcontentfilemetadata.contenthistid)
+						and tcontent.contenthistid=tcontentfilemetadata.contenthistid
+						and tcontent.siteid=tcontentfilemetadata.siteid)
 				</cfif>
 
 				<cfif mxpRelevanceSort>
@@ -814,7 +819,17 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 	<cfset var relatedListLen = listLen(arguments.relatedID) />
 	<cfset var f=""/>
 	<cfset var c=""/>
-	<cfset var nowAdjusted=createDateTime(year(arguments.today),month(arguments.today),day(arguments.today),hour(arguments.today),int((minute(arguments.today)/5)*5),0)>
+	<cfset var nowAdjusted="">
+
+	<cfif request.muraChangesetPreview and isStruct(getCurrentUser().getValue("ChangesetPreviewData"))>
+		<cfset nowAdjusted=getCurrentUser().getValue("ChangesetPreviewData").publishDate>
+	</cfif>
+
+	<cfif not isdate(nowAdjusted)>
+			<cfset nowAdjusted=arguments.today>
+	</cfif>
+
+	<cfset nowAdjusted=variables.utility.datetimeToTimespanInterval(nowAdjusted,createTimespan(0,0,5,0))>
 
 	<cfquery attributeCollection="#variables.configBean.getReadOnlyQRYAttrs(name='rs')#">
 		SELECT tcontentcategories.categoryID, tcontentcategories.filename, Count(tcontent.contenthistID) as "Count", tcontentcategories.name from tcontent inner join tcontentcategoryassign
@@ -2090,18 +2105,22 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 	<cfargument name="reverse" type="boolean" default="false">
 	<cfargument name="reverseContentID"  type="string" />
 	<cfargument name="navOnly" type="boolean" required="yes" default="false" />
+	<cfargument name="cachedWithin" type="any" required="yes" default="#createTimeSpan(0,0,0,0)#" />
+
 	<cfset var rsRelatedContent ="" />
 	<cfset var dbType=variables.configBean.getDbType() />
 	<cfset var tableModifier="">
-	<cfset var nowAdjusted="">
+		<cfset var nowAdjusted="">
 
-	<cfif request.muraChangesetPreview and isStruct(getCurrentUser().getValue("ChangesetPreviewData"))>
-		<cfset nowAdjusted=getCurrentUser().getValue("ChangesetPreviewData").publishDate>
-	</cfif>
+		<cfif request.muraChangesetPreview and isStruct(getCurrentUser().getValue("ChangesetPreviewData"))>
+			<cfset nowAdjusted=getCurrentUser().getValue("ChangesetPreviewData").publishDate>
+		</cfif>
 
-	<cfif not isdate(nowAdjusted)>
-		<cfset nowAdjusted=createDateTime(year(arguments.today),month(arguments.today),day(arguments.today),hour(arguments.today),int((minute(arguments.today)/5)*5),0)>
-	</cfif>
+		<cfif not isdate(nowAdjusted)>
+				<cfset nowAdjusted=arguments.today>
+		</cfif>
+
+		<cfset nowAdjusted=variables.utility.datetimeToTimespanInterval(nowAdjusted,arguments.cachedWithin)>
 
 	<cfif dbtype eq "MSSQL">
 		<cfset tableModifier="with (nolock)">
@@ -2135,7 +2154,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 		<cfset var mxpRelevanceSort=false>
 	</cfif>
 
-	<cfquery attributeCollection="#variables.configBean.getReadOnlyQRYAttrs(name='rsRelatedContent')#">
+	<cfquery attributeCollection="#variables.configBean.getReadOnlyQRYAttrs(name='rsRelatedContent',cachedWithin=arguments.cachedWithin)#">
 	SELECT tcontent.title, tcontent.releasedate, tcontent.menuTitle, tcontent.lastupdate, tcontent.lastupdatebyid, tcontent.summary, tcontent.filename, tcontent.type, tcontent.contentid,
 	tcontent.target,tcontent.targetParams, tcontent.restricted, tcontent.restrictgroups, tcontent.displaystart, tcontent.displaystop, tcontent.orderno,tcontent.sortBy,tcontent.sortDirection,
 	tcontent.fileid, tcontent.credits, tcontent.remoteSource, tcontent.remoteSourceURL, tcontent.remoteURL, tcontent.subtype,
@@ -2164,7 +2183,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 		left join (
 			select sum(track.points) track_total_score, track.contentid
 			from mxp_conversiontrack track
-			where track.created >= <cfqueryparam cfsqltype="cf_sql_timestamp" value="#dateAdd('m',-1,now())#">
+			where track.created >= <cfqueryparam cfsqltype="cf_sql_timestamp" value="#dateAdd('m',-1,nowAdjusted)#">
 			group by track.contentid
 		) tracktotal on (tcontent.contentid=tracktotal.contentid)
 	</cfif>
@@ -2232,7 +2251,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 			  	tcontent.Display = 2
 			  	AND (
 				  		(
-				  			tcontent.DisplayStart >= <cfqueryparam cfsqltype="#renderDateTimeParamType()#" value="#arguments.today#">
+				  			tcontent.DisplayStart >= <cfqueryparam cfsqltype="#renderDateTimeParamType()#" value="#nowAdjusted#">
 							AND tcontent.parentID in (select contentID from tcontent
 															where type='Calendar'
 															#renderActiveClause("tcontent",arguments.siteID)#
@@ -2241,10 +2260,10 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 						 )
 					   OR
 					   	(
-					   		tcontent.DisplayStart <= <cfqueryparam cfsqltype="#renderDateTimeParamType()#" value="#arguments.today#">
+					   		tcontent.DisplayStart <= <cfqueryparam cfsqltype="#renderDateTimeParamType()#" value="#nowAdjusted#">
 							AND
 							(
-								tcontent.DisplayStop >= <cfqueryparam cfsqltype="#renderDateTimeParamType()#" value="#arguments.today#">
+								tcontent.DisplayStop >= <cfqueryparam cfsqltype="#renderDateTimeParamType()#" value="#nowAdjusted#">
 								or tcontent.DisplayStop is null
 							)
 					   )
@@ -2321,7 +2340,10 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 		(
 			tcontent.contentid in (
 				select contentid from tcontentobjects
-				where objectid like <cfqueryparam cfsqltype="cf_sql_varchar" value="%#arguments.objectID#%"/>
+				where
+				siteid=<cfqueryparam cfsqltype="cf_sql_varchar" value="#arguments.siteid#"/>
+				and active=1
+				and objectid like <cfqueryparam cfsqltype="cf_sql_varchar" value="%#arguments.objectID#%"/>
 			)
 			<cfif variables.configBean.getDbType() neq 'Oracle'>
 			or
@@ -2329,6 +2351,7 @@ version 2 without this exception.  You may, if you choose, apply this exception 
 				select contentid from tcontent
 				where
 				siteid=<cfqueryparam cfsqltype="cf_sql_varchar" value="#arguments.siteid#"/>
+				and active=1
 				and body like <cfqueryparam cfsqltype="cf_sql_varchar" value="%#arguments.objectID#%"/>
 
 			)

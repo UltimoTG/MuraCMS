@@ -931,7 +931,7 @@ Blog: www.codfusion.com--->
 			var secret = $.siteConfig('reCAPTCHASecret');
 
 			if ( Len(secret) && StructKeyExists(form, 'g-recaptcha-response') && Len(form['g-recaptcha-response']) ) {
-				var reCaptcha = new mura.reCaptcha(secret);
+				var reCaptcha = new mura.reCAPTCHA(secret);
 				var verified = reCaptcha.verifyResponse(response=form['g-recaptcha-response'], remoteid=request.remoteAddr );
 			}
 
@@ -1290,6 +1290,19 @@ Blog: www.codfusion.com--->
 				len(arguments.path) >= len(pluginPath) && left(arguments.path,len(pluginPath)) == pluginPath
 			)
 		);
+	}
+
+	function datetimeToTimespanInterval(datetime,timespan=''){
+		if(!(0+arguments.timespan)){
+			arguments.timespan=createTimeSpan(0,0,5,0);
+		}
+		var nowBase=now();
+		var nowEpoch=DateDiff("s", DateConvert("utc2Local", "January 1 1970 00:00"), nowBase);
+		var seconds=dateDiff('s',nowBase,nowBase + arguments.timespan);
+		if(variables.configBean.getValue('compiler') == 'Adobe'){
+			seconds=seconds+1;
+		}
+		return DateAdd("s",fix(nowEpoch/seconds) * seconds,DateConvert("utc2Local", "January 1 1970 00:00"));
 	}
 </cfscript>
 
